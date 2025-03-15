@@ -160,11 +160,11 @@ def project_3d_to_2d(positions, velocities, viewing_direction=np.array([0, 0, 1]
     
     return positions_2d, los_velocity
 
-def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 10, Ng_jump=1, Ng_max=None, ddof=1):
+def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 10, Ng_jump=1, Ng_max=None, ddof=1, cluster_name = None):
 
     Ng_max = int(np.sqrt(len(velocity))) if Ng_max is None else Ng_max
 
-    dsp_results = milaDS.DSp_groups(Xcoor=positions_2d[:, 0], Ycoor=positions_2d[:, 1], Vlos=velocity, Zclus=0, nsims=n_sims, Plim_P = Plim_P, Ng_jump=Ng_jump, Ng_max=Ng_max, ddof=ddof)
+    dsp_results = milaDS.DSp_groups(Xcoor=positions_2d[:, 0], Ycoor=positions_2d[:, 1], Vlos=velocity, Zclus=0, nsims=n_sims, Plim_P = Plim_P, Ng_jump=Ng_jump, Ng_max=Ng_max, ddof=ddof, cluster_name = cluster_name)
 
     dsp_g = np.zeros(positions_2d.shape[0])
     tng_g = np.zeros(positions_2d.shape[0])
@@ -199,7 +199,7 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 10, Ng_jump
 
     return dsp_results, C, P
 
-def bootstrap_compleness_purity(mc_in, pos_in, vel_in, in_groups, n_sims=1000):
+def bootstrap_compleness_purity(mc_in, pos_in, vel_in, in_groups, n_sims=1000, cluster_name = None):
 
     ### TNG subgroups
 
@@ -228,7 +228,7 @@ def bootstrap_compleness_purity(mc_in, pos_in, vel_in, in_groups, n_sims=1000):
         r_bootstrap = np.random.choice(a = vel_in)
         bool_bootstrap = vel_in != r_bootstrap
 
-        mc_run = milaDS.DSp_groups(Xcoor=pos_in[bool_bootstrap, 0], Ycoor=pos_in[bool_bootstrap, 1], Vlos=vel_in[bool_bootstrap], Zclus=0, nsims=n_sims)
+        mc_run = milaDS.DSp_groups(Xcoor=pos_in[bool_bootstrap, 0], Ycoor=pos_in[bool_bootstrap, 1], Vlos=vel_in[bool_bootstrap], Zclus=0, nsims=n_sims, Plim_P = 50, Ng_jump=1, cluster_name = cluster_name + str(j))
 
         ### DS+ subgroups
 
@@ -357,10 +357,10 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc):
         pos_2d, vel_los = project_3d_to_2d(pos, vel, viewing_direction=proj_vector[i])
 
         ### Run DS+ and get back purity and completeness 
-        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims)
+        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims, Plim_P = 50, Ng_jump=1, cluster_name = str(proj_vector))
 
         ### Bootstrapping on purity and completeness
-        C_err, P_err = bootstrap_compleness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, n_sims=dsp_sims);
+        C_err, P_err = bootstrap_compleness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, n_sims=dsp_sims, cluster_name = str(proj_vector));
 
         ### Find the DS+ Groups
         dsp_groups = dsp_group_finder(dsp_output = dsp_results)

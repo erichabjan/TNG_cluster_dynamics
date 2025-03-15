@@ -1,4 +1,4 @@
-The code in this repository imports and analyzes data from the [TNG simulation](https://www.tng-project.org/data/) to determine the best methods of mass substructure identification in galaxy clusters. 
+This repository imports and analyzes data from the [TNG simulation](https://www.tng-project.org/data/) to determine the best methods of mass substructure identification in galaxy clusters. 
 
 The DS+_virial.py script runs the [DS+](https://github.com/josegit88/MilaDS) algorithm to find substucture using two dimensional postions and line of sight velocity. This script also calculates virial masses of each substructure that is identified as well as the entire mass of the galaxy cluster. All funcitons used in this analysis are stored in TNG_DA.py. 
 

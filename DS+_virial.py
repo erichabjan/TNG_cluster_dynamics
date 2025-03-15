@@ -13,9 +13,9 @@ import TNG_DA
 
 ### Variables 
 cluster_number = 3
-bootstrap_mc = 2 #100
-dsp_sims = 10 #500
-df_len = 10 #1000
+bootstrap_mc = 100
+dsp_sims = 500
+df_len = 1000
 
 proj_arr = np.random.uniform(-1, 1, (df_len, 3))
 
