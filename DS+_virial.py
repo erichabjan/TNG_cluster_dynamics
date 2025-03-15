@@ -1,57 +1,58 @@
 import numpy as np 
 import matplotlib.pyplot as plt
 import pandas as pd
+import multiprocessing as mp
+import math
 import os
 
+dirc_path = '/home/habjan.e/'
+
 import sys
-sys.path.append("/work/mccleary_group/habjan.e/TNG/TNG_cluster_dynamics")
+sys.path.append(dirc_path + "TNG/TNG_cluster_dynamics")
 import TNG_DA
 
 ### Variables 
 cluster_number = 3
-proj_vector = np.array([0, 0, 1])
-dsp_sims = 1
-bootstrap_mc = 10
+bootstrap_mc = 2 #100
+dsp_sims = 10 #500
+df_len = 10 #1000
 
-### Grab TNG data
-pos, vel, group, sub_masses_TNG, h, halo_mass_TNG = TNG_DA.get_cluster_props(cluster_number)
+proj_arr = np.random.uniform(-1, 1, (df_len, 3))
 
-### Project data to be observation-like
-pos_2d, vel_los = TNG_DA.project_3d_to_2d(pos, vel, viewing_direction=proj_vector)
+if __name__ == "__main__":
 
-### Run DS+ and get back purity and completeness 
-test, C, P = TNG_DA.run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims)
+    corenum = os.cpu_count()                         #chosen based of the number of cores
+    batch = math.ceil(df_len/corenum)     #batch determines the number of data points in each batched dataset
+    projlist = [proj_arr[i:i+batch, :] for i in range(0, df_len, batch)] #make list of batched data
+    
+    pool = mp.Pool(processes = len(projlist))          #count processes are inititiated
+    mplist = [pool.apply_async(TNG_DA.DSP_Virial_analysis, args = (cluster_number, pv, dsp_sims, bootstrap_mc)) for pv in projlist] #each batched dataset is assigned to a core 
 
-### Bootstrapping on purity and completeness
-C_err, P_err = TNG_DA.bootstrap_compleness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, n_sims=dsp_sims);
+results = [mplist[i].get() for i in range(len(mplist))] 
 
-### Find the DS+ Groups
-dsp_groups = TNG_DA.dsp_group_finder(dsp_output = test)
+dsp_1 = []
+dsp_2 = []
+dsp_3 = []
+sub_masses = []
 
-### Find Virial Masses
-halo_mass_Virial, sub_masses_Virial = TNG_DA.virial_mass(position_2d = pos_2d, los_velocity = vel_los, groups = dsp_groups)
+for i in range(len(results)):
 
-df = pd.DataFrame({
-    "Cluster Index": [cluster_number],
-    "TNG Position": [pos],
-    "TNG Velocity": [vel],
-    "TNG Group": [group],
-    "TNG Subhalo Masses": [sub_masses_TNG],
-    "TNG Halo Mass": [halo_mass_TNG],
-    "Projection Vector": [proj_vector],
-    "2D Position": [pos_2d],
-    "LOS Velocity": [vel_los],
-    "DS+ Results": [test],
-    "Completeness": [C],
-    "Completeness Uncertainty": [C_err],
-    "Purity": [P],
-    "Purity Uncertainty": [P_err],
-    "Virial Subhalo Masses": [sub_masses_Virial],
-    "Virial Halo Mass": [halo_mass_Virial]
-})
+    dsp_1.append(results[i][0][0])
+    dsp_2.append(results[i][0][1])
+    dsp_3.append(results[i][0][2])
+    sub_masses.append(results[i][1])
 
-save_path = "/work/mccleary_group/habjan.e/TNG/Data/data_DS+_virial_results/test_run.csv"
-os.makedirs(os.path.dirname(save_path), exist_ok=True)
-df.to_csv(save_path, index=False)
+    if i == 0:
+        df = results[i][2]
+    else: 
+        df_new = results[i][2]
+        df = pd.concat([df, df_new], ignore_index=True)
+
+save_path = dirc_path + "TNG/Data/data_DS+_virial_results/"
+np.save(save_path + "DS+_array_1.npy", np.array(dsp_1))
+np.save(save_path + "DS+_array_2.npy", np.array(dsp_2))
+#np.save(save_path + "DS+_array_3.npy", np.array(dsp_3))
+np.save(save_path + "subhalo_masses.npy", sub_masses)
+df.to_csv(save_path + "DS+_Virial_df.csv", index=False)
 
 print('Successfully Ran DS+_virial.py')

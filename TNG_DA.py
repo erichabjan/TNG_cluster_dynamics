@@ -1,22 +1,25 @@
+dirc_path = '/home/habjan.e/'
+
 import sys
-sys.path.append('/work/mccleary_group/habjan.e/TNG/Codes/DS+/MilaDS')
+sys.path.append(dirc_path + 'TNG/Codes/DS+/MilaDS')
 import milaDS
 
-sys.path.append('/work/mccleary_group/habjan.e/TNG/TNG_cluster_dynamics')
+sys.path.append(dirc_path + 'TNG/Codes')
 import iapi_TNG as iapi
 
 import numpy as np
 import h5py #most TNG data is downloaded as hdf5 files
 import matplotlib.pyplot as plt
 import os.path
+import pandas as pd
 
 baseUrl = 'http://www.tng-project.org/api/'
 
-dirc='/work/mccleary_group/habjan.e/TNG/TNG_workshop/'
+dirc=dirc_path + 'TNG/TNG_workshop/'
 sim='TNG300-1'
 r=iapi.get(baseUrl)
 
-TNG_data_path = '/work/mccleary_group/habjan.e/TNG/Data/'
+TNG_data_path = dirc_path + 'TNG/Data/'
 
 simUrl = baseUrl+sim
 simdata = iapi.get(simUrl)
@@ -72,12 +75,12 @@ def get_cluster_props(cluster_ind):
     distsq = np.sum(np.square(difpos),axis=1)
 
     ### Center the position array relative to the cluster, make arrays with cluster subhalo parameters
-    cl_pos, cl_vel, cl_photo = difpos[sub_ind], sub_vel[sub_ind], sub_photo[sub_ind]
+    cl_pos, cl_vel, cl_photo, cl_masses = difpos[sub_ind], sub_vel[sub_ind], sub_photo[sub_ind], sub_masses[sub_ind]
 
     ### Make a magnitude cut so that subhalos are actually galaxies, not DM halos 
     mag_cut = -18
     bright_ind = cl_photo[:, 4] < mag_cut
-    pos, vel, photo = cl_pos[bright_ind], cl_vel[bright_ind], cl_photo[bright_ind]
+    pos, vel, photo, subhalo_masses = cl_pos[bright_ind], cl_vel[bright_ind], cl_photo[bright_ind], cl_masses[bright_ind]
 
     subhalos = sub_ind[bright_ind]    ### This gives the index of each subhalo in the cluster
 
@@ -119,7 +122,7 @@ def get_cluster_props(cluster_ind):
         else:
             groups[merger_tuple] = [halo_ind]
     
-    return pos, vel, groups, sub_masses, h, halo_mass
+    return pos, vel, groups, subhalo_masses, h, halo_mass
 
 def project_3d_to_2d(positions, velocities, viewing_direction=np.array([0, 0, 1])):
     """
@@ -157,16 +160,18 @@ def project_3d_to_2d(positions, velocities, viewing_direction=np.array([0, 0, 1]
     
     return positions_2d, los_velocity
 
-def run_dsp(positions_2d, velocity, in_groups, n_sims=1000):
+def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 10, Ng_jump=1, Ng_max=None, ddof=1):
 
-    dsp_results = milaDS.DSp_groups(Xcoor=positions_2d[:, 0], Ycoor=positions_2d[:, 1], Vlos=velocity, Zclus=0, nsims=n_sims)
+    Ng_max = int(np.sqrt(len(velocity))) if Ng_max is None else Ng_max
+
+    dsp_results = milaDS.DSp_groups(Xcoor=positions_2d[:, 0], Ycoor=positions_2d[:, 1], Vlos=velocity, Zclus=0, nsims=n_sims, Plim_P = Plim_P, Ng_jump=Ng_jump, Ng_max=Ng_max, ddof=ddof)
 
     dsp_g = np.zeros(positions_2d.shape[0])
     tng_g = np.zeros(positions_2d.shape[0])
 
     for group in in_groups:
             
-        if len(in_groups[group]) > 1 and len(in_groups[group]) < 30:
+        if len(in_groups[group]) > 1 and len(in_groups[group]) < int(np.sqrt(len(velocity))):
             tng_g[in_groups[group]] = 1
     
         else:
@@ -179,7 +184,7 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000):
 
         group_dsp_arr = np.where(sub_grnu_arr == sub_grnu[i])[0]
 
-        if sub_count[i] > 1 and sub_count[i] < 30:
+        if sub_count[i] > 1 and sub_count[i] < int(np.sqrt(len(velocity))):
             dsp_g[group_dsp_arr] = 1
     
         else:
@@ -247,7 +252,7 @@ def bootstrap_compleness_purity(mc_in, pos_in, vel_in, in_groups, n_sims=1000):
         C_arr[j] = NDSp_real / Nreal
         P_arr[j] = NDSp_real / NDSp
     
-    return C_arr, P_arr
+    return np.nanstd(C_arr), np.nanstd(P_arr)
 
 
 def dsp_group_finder(dsp_output):
@@ -340,3 +345,57 @@ def virial_mass(position_2d, los_velocity, groups):
     M_cluster /= 1.989 * 10**30 ## Convert from kg to solar masses
 
     return M_cluster, sub_masses
+
+def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc):
+
+    ### Grab TNG data
+    pos, vel, group, sub_masses_TNG, h, halo_mass_TNG = get_cluster_props(cluster_number)
+
+    for i in range(proj_vector.shape[0]):
+
+        ### Project data to be observation-like
+        pos_2d, vel_los = project_3d_to_2d(pos, vel, viewing_direction=proj_vector[i])
+
+        ### Run DS+ and get back purity and completeness 
+        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims)
+
+        ### Bootstrapping on purity and completeness
+        C_err, P_err = bootstrap_compleness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, n_sims=dsp_sims);
+
+        ### Find the DS+ Groups
+        dsp_groups = dsp_group_finder(dsp_output = dsp_results)
+
+        ### Find Virial Masses
+        halo_mass_Virial, sub_masses_Virial = virial_mass(position_2d = pos_2d, los_velocity = vel_los, groups = dsp_groups)
+
+        if i == 0:
+
+            df = pd.DataFrame({
+                "Cluster Index": [cluster_number],
+                "Projection x-Direction": [proj_vector[i,0]],
+                "Projection y-Direction": [proj_vector[i,1]],
+                "Projection z-Direction": [proj_vector[i,2]],
+                "Completeness": [C],
+                "Completeness Uncertainty": [C_err],
+                "Purity": [P],
+                "Purity Uncertainty": [P_err],
+                "Virial Halo Mass": [halo_mass_Virial]
+            })
+        
+        else: 
+
+            df_new = pd.DataFrame({
+                "Cluster Index": [cluster_number],
+                "Projection x-Direction": [proj_vector[i,0]],
+                "Projection y-Direction": [proj_vector[i,1]],
+                "Projection z-Direction": [proj_vector[i,2]],
+                "Completeness": [C],
+                "Completeness Uncertainty": [C_err],
+                "Purity": [P],
+                "Purity Uncertainty": [P_err],
+                "Virial Halo Mass": [halo_mass_Virial]
+            })
+
+            df = pd.concat([df, df_new], ignore_index=True)
+
+    return dsp_results, sub_masses_Virial, df
