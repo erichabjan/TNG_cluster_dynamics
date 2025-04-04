@@ -308,7 +308,7 @@ def virial_mass(position_2d, los_velocity, groups):
 
     R_harm = ( (1 / (N * (N - 1))) * sum_inverse_r)**(-1)
     mean_cluster_velocity = np.mean(vel_los)
-    vel_los_disp = np.sqrt((1 / (len(groups) - 1)) * np.sum((vel_los - mean_cluster_velocity)**2))
+    vel_los_disp = np.sqrt((1 / (N - 1)) * np.sum((vel_los - mean_cluster_velocity)**2))
     M_cluster = (3 * vel_los_disp**2 * R_harm) / G
 
 
@@ -357,10 +357,10 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc):
         pos_2d, vel_los = project_3d_to_2d(pos, vel, viewing_direction=proj_vector[i])
 
         ### Run DS+ and get back purity and completeness 
-        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims, Plim_P = 50, Ng_jump=1, cluster_name = str(proj_vector))
+        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims, Plim_P = 50, Ng_jump=1, cluster_name = str(proj_vector[i]))
 
         ### Bootstrapping on purity and completeness
-        C_err, P_err = bootstrap_compleness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, n_sims=dsp_sims, cluster_name = str(proj_vector));
+        C_err, P_err = bootstrap_compleness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, n_sims=dsp_sims, cluster_name = str(proj_vector[i]));
 
         ### Find the DS+ Groups
         dsp_groups = dsp_group_finder(dsp_output = dsp_results)
@@ -399,3 +399,107 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc):
             df = pd.concat([df, df_new], ignore_index=True)
 
     return dsp_results, sub_masses_Virial, df
+
+
+def compute_covariance_3d(positions):
+    """
+    Compute the 3x3 covariance matrix for a set of 3D points.
+    
+    Args:
+        positions (numpy.ndarray): Array of shape (N, 3).
+    
+    Returns:
+        numpy.ndarray: 3x3 covariance matrix.
+    """
+    # Center the positions
+    mean_pos = np.mean(positions, axis=0)
+    centered = positions - mean_pos
+    
+    # Covariance
+    cov_3d = np.dot(centered.T, centered) / positions.shape[0]
+    return cov_3d
+
+def shape_index_3d(positions):
+    """
+    Compute a simple 3D shape (sphericity) index for the distribution.
+    For example, the ratio of the smallest principal axis to the largest (c/a).
+    
+    Args:
+        positions (numpy.ndarray): Array of shape (N, 3).
+    
+    Returns:
+        float: c/a where c = sqrt(lambda_min) and a = sqrt(lambda_max).
+    """
+    cov_3d = compute_covariance_3d(positions)
+    eigenvals, _ = np.linalg.eig(cov_3d)
+    # Sort eigenvalues: largest to smallest
+    sorted_vals = np.sort(eigenvals)[::-1]
+    a = np.sqrt(sorted_vals[0])  # largest axis
+    b = np.sqrt(sorted_vals[1])  # middle axis
+    c = np.sqrt(sorted_vals[2])  # smallest axis
+
+    T = (a**2 - b**2) / (a**2 - c**2)
+    sphericity = c / a
+
+    return sphericity, T
+
+def compute_covariance_2d(positions, velocities, proj_arr):
+    """
+    Compute the 2x2 covariance matrix for a set of 2D points.
+    
+    Args:
+        positions_2d (numpy.ndarray): Array of shape (N, 2).
+    
+    Returns:
+        numpy.ndarray: 2x2 covariance matrix.
+    """
+
+    positions_2d, los_vel = project_3d_to_2d(positions, velocities, proj_arr)
+
+    mean_pos = np.mean(positions_2d, axis=0)
+    centered = positions_2d - mean_pos
+    
+    cov_2d = np.dot(centered.T, centered) / positions_2d.shape[0]
+    return cov_2d
+
+def shape_index_2d(positions, velocities, proj_arr):
+    """
+    Compute a simple 2D shape index for the distribution.
+    For example, the ratio of the smaller principal axis to the larger (sqrt(lambda_min / lambda_max)).
+    
+    Args:
+        positions_2d (numpy.ndarray): Array of shape (N, 2).
+    
+    Returns:
+        float: The ratio (minor / major) of the distribution in 2D.
+    """
+    cov_2d = compute_covariance_2d(positions, velocities, proj_arr)
+    eigenvals, _ = np.linalg.eig(cov_2d)
+    # Sort eigenvalues: largest to smallest
+    sorted_vals = np.sort(eigenvals)[::-1]
+    major = np.sqrt(sorted_vals[0])
+    minor = np.sqrt(sorted_vals[1])
+    
+    return minor / major
+
+def compare_3d_2d_shape(positions_3d, velocities_3d, viewing_direction):
+    """
+    Compare the 3D shape index with the 2D shape index from a projection.
+    
+    Args:
+        positions_3d (numpy.ndarray): Shape (N, 3) for 3D positions.
+        velocities_3d (numpy.ndarray): Shape (N, 3) for 3D velocities (used for projection).
+        viewing_direction (numpy.ndarray): 1D array of shape (3,) specifying the viewing direction.
+    
+    Returns:
+        tuple: (shape_3d, shape_2d, difference), where 'difference' = shape_2d - shape_3d
+    """
+    # 3D shape index
+    shape_3d, T = shape_index_3d(positions_3d)
+    
+    # 2D shape index
+    shape_2d = shape_index_2d(positions_3d, velocities_3d, viewing_direction)
+    
+    # Compare 
+    difference = shape_2d - shape_3d
+    return shape_3d, shape_2d, difference, T
