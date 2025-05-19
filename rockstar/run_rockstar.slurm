@@ -22,7 +22,11 @@ mkdir -p $OUTPUT_DIR
 cd /home/habjan.e/TNG/Codes/rockstar
 
 # Set library path to include current directory
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)
+#export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)
+
+# Set library paths
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+export LD_PRELOAD=$CONDA_PREFIX/lib/libhdf5.so
 
 # Run the rockstar halo finder
 ./rockstar_interface "$INPUT_FILE" > $OUTPUT_DIR/rockstar_output.log 2>&1
