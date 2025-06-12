@@ -41,8 +41,8 @@ reg:
 #	$(CC) $(CFLAGS) $(LDFLAGS) $(CFILES) -o librockstar.so $(OFLAGS)
 
 lib:
-	$(CC) -fPIC -I$(HOME)/.local/include -I$(HOME)/.local/include/tirpc -D_DEFAULT_SOURCE -rdynamic -shared $(CFILES) \
-	-L$(HOME)/.local/lib -ltirpc -lm -Wl,-rpath=$(HOME)/.local/lib -o librockstar.so
+	$(CC) -fPIC -fopenmp -I$(HOME)/.local/include -I$(HOME)/.local/include/tirpc -D_DEFAULT_SOURCE -rdynamic -shared $(CFILES) \
+	-L$(HOME)/.local/lib -ltirpc -lm -fopenmp -Wl,-rpath=$(HOME)/.local/lib -o librockstar.so
 
 bgc2:
 	$(CC) $(CFLAGS) io/extra_bgc2.c util/redo_bgc2.c $(CFILES) -o util/finish_bgc2  $(OFLAGS)
