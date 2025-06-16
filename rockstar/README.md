@@ -1,6 +1,20 @@
 The code in this folder runs the [ROCKSTAR phase-space temporal halo finder](https://iopscience.iop.org/article/10.1088/0004-637X/762/2/109) for a single Friends-of-Friends halo identified by algorithm `subfind`. The script takes in simulation particles from TNGIllustrius as a single HDF5 file. Using particles from host halos, we aim to find the subhalos/substructure within the TNGIllustrius halos/galaxy clusters. 
 
-To set up this code, download the [ROCKSTAR repository](https://bitbucket.org/gfcstanford/rockstar/src/main/). Replace the `Makefile` with the file in this directory and add the `python_interface.c` and `python_interface.h` files to the rockstar directory. Then, run the following command to compile the static library: 
+To set up this code, download the [ROCKSTAR repository](https://bitbucket.org/gfcstanford/rockstar/src/main/). Replace the `Makefile` with the file in this directory, add both the `python_interface.c` and `python_interface.h` files to the rockstar directory, and update the `particle.h` files with: 
+
+<pre><code> #ifndef PARTICLE_H
+#define PARTICLE_H
+#include <stdint.h>
+
+struct particle {
+  int64_t id;
+  float pos[6];
+  float mass;
+};
+
+#endif /*PARTICLE_H*/</code></pre>
+
+Then, run the following command to compile the static library: 
 
 <pre><code> make lib </code></pre>
 

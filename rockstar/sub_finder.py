@@ -36,7 +36,7 @@ masses = np.zeros(coordinates.shape[0]) + 5.9 * 10**7
 
 ### Take a fraction of the data
 
-frac = 0.01
+frac = 0.001
 
 num_particles = coordinates.shape[0]
 
@@ -57,30 +57,28 @@ lib = ctypes.CDLL(str(rockstar_path))
 
 class Particle(ctypes.Structure):
     _fields_ = [
-        ("pos", ctypes.c_float * 3),
-        ("vel", ctypes.c_float * 3),
+        ("id",   ctypes.c_int64),
+        ("pos",  ctypes.c_float * 6),
         ("mass", ctypes.c_float),
-        ("id", ctypes.c_float),
     ]
-
-# particles structure
 
 ### Make particle structure in NumPy similar to C structure
 
 particle_dtype = np.dtype([
-    ("pos", np.float32, (3,)),
-    ("vel", np.float32, (3,)),
+    ("id",   np.int64),
+    ("pos",  np.float32, (6,)),
     ("mass", np.float32),
-    ("id", np.float32)
-])
+], align=True)
 
 N = coordinates.shape[0]
-structured_particles = np.empty(N, dtype=particle_dtype)
+structured = np.empty(N, dtype=particle_dtype)
 
-structured_particles["pos"] = coordinates.astype(np.float32)
-structured_particles["vel"] = velocities.astype(np.float32)
-structured_particles["mass"] = masses.astype(np.float32)
-structured_particles["id"] = ids.astype(np.float32)
+structured["id"] = ids[:N]
+structured["pos"][:, 0:3] = coordinates[:N].astype(np.float32)
+structured["pos"][:, 3:6] = velocities[:N].astype(np.float32)
+structured["mass"] = masses[:N].astype(np.float32)
+
+assert ctypes.sizeof(Particle) == structured.dtype.itemsize == 40
 
 ### Make particle structure for ROCKSTAR input
 
@@ -90,9 +88,12 @@ particles = ParticleArray()
 # Efficient memory copy from NumPy to ctypes array
 ctypes.memmove(
     ctypes.addressof(particles),
-    structured_particles.ctypes.data,
-    structured_particles.nbytes
+    structured.ctypes.data,
+    structured.nbytes
 )
+
+print("ctypes sizeof:", ctypes.sizeof(Particle))
+print("numpy itemsize:", structured.dtype.itemsize)
 
 ### import `rockstar_analyze_fof_group`
 
