@@ -9,9 +9,11 @@ from pathlib import Path
 
 import sys
 sys.path.append("/home/habjan.e/TNG/Codes")
+sys.path.append("/home/habjan.e/TNG/TNG_cluster_dynamics")
 
 import iapi_TNG as iapi
 import h5py
+import TNG_DA
 
 import multiprocessing
 import os
@@ -36,16 +38,20 @@ masses = np.zeros(coordinates.shape[0]) + 5.9 * 10**7
 
 ### Take a fraction of the data
 
-frac = 0.001
+#frac = 0.001
 
-num_particles = coordinates.shape[0]
+#num_particles = coordinates.shape[0]
 
-part_frac = int(num_particles * frac)
+#part_frac = int(num_particles * frac)
 
-coordinates = coordinates[:part_frac, :]
-velocities = velocities[:part_frac, :]
-ids = ids[:part_frac]
-masses = masses[:part_frac]
+#coordinates = coordinates[:part_frac, :]
+#velocities = velocities[:part_frac, :]
+#ids = ids[:part_frac]
+#masses = masses[:part_frac]
+
+### Correct coordinates for TNG simulation coordiantes
+# We will need to change cluster_ind in the future
+coordinates = TNG_DA.coord_cm_corr(cluster_ind = 0, coordinates = coordinates) 
 
 
 ### Load shared ROCKSTAR library

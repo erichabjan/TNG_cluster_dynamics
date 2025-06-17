@@ -50,11 +50,11 @@ def get_cluster_props(cluster_ind):
     halo_mass = Crit200[bool_arr][cluster_ind] * 10**10 / h
 
     ### Pick a galaxy cluster
-    cluster_TNG = bool_ind[cluster_ind]
-    sub_ind = np.where(Group_num == cluster_TNG)[0]
+    #cluster_TNG = bool_ind[cluster_ind]
+    sub_ind = np.where(Group_num == cluster_ind)[0]
 
     ### Find the center of the galaxy cluster
-    pos_comoving = halo_center[cluster_TNG, :] ## position in units c * kpc / h
+    pos_comoving = halo_center[cluster_ind, :] ## position in units c * kpc / h
     cm_pos = pos_comoving / simdata['hubble']
 
     ### Import Subhalo Positons, Velocities, Photometrics 
@@ -95,7 +95,7 @@ def get_cluster_props(cluster_ind):
             subTreeFile = gettree(99, sub)    ### This downloads the merger tree information 
             subTree = h5py.File(subTreeFile,'r')    ### This reads the merger tree info 
             subTree['SubhaloGrNr'][:]       ### Group number with cosmic time   
-            grnum_max = np.max(np.where(subTree['SubhaloGrNr'][:] == cluster_TNG)[0])
+            grnum_max = np.max(np.where(subTree['SubhaloGrNr'][:] == cluster_ind)[0])
             grnum_max += 1
             subhalo_dict[sub] = subTree['SubhaloGrNr'][:grnum_max]
 
@@ -123,6 +123,36 @@ def get_cluster_props(cluster_ind):
             groups[merger_tuple] = [halo_ind]
     
     return pos, vel, groups, subhalo_masses, h, halo_mass
+
+def coord_cm_corr(cluster_ind, coordinates):
+
+    """
+    Corrects for TNG coordinates into cluster-centric coordinates
+    
+    Args:
+        cluster_ind (integer): TNG cluster index.
+        coordinates (numpy.ndarray): Array of shape (N, 3) containing TNG simulation coordinates.
+
+    Returns:
+        coordinates (numpy.ndarray): Array of shape (N, 3) with cluster-centric coordinates.
+    """
+
+    halo_center = iapi.getHaloField(field ='GroupPos', simulation=sim, snapshot=99, fileName=TNG_data_path+'TNG_data/'+sim+'_GroupPos', rewriteFile=0)
+    h = simdata['hubble']
+
+    pos_comoving = halo_center[cluster_ind, :] ## position in units c * kpc / h
+    cm_pos = pos_comoving / h
+
+    sub_uncorrected_pos = coordinates / h
+    L = np.max(sub_uncorrected_pos)
+    halfbox = L / 2
+
+    difpos = np.subtract(sub_uncorrected_pos, cm_pos)
+    #Replace values that are affected by boundary conditions
+    difpos = np.where( abs(difpos) > halfbox, abs(difpos)- L , difpos)
+    distsq = np.sum(np.square(difpos),axis=1)
+
+    return difpos
 
 def project_3d_to_2d(positions, velocities, viewing_direction=np.array([0, 0, 1])):
     """
