@@ -2,8 +2,8 @@ The code in this folder runs the [ROCKSTAR phase-space temporal halo finder](htt
 
 To set up this code, download the [ROCKSTAR repository](https://bitbucket.org/gfcstanford/rockstar/src/main/). Replace the `Makefile` with the file in this directory, add both the `python_interface.c` and `python_interface.h` files to the rockstar directory, and update the `particle.h` files with: 
 
-<pre><code> 
-#ifndef PARTICLE_H
+ 
+<pre><code>#ifndef PARTICLE_H
 #define PARTICLE_H
 #include <stdint.h>
 
