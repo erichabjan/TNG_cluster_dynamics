@@ -25,7 +25,7 @@ start = time.time()
 
 ### Import downloaded cluster
 
-fName = '/home/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm'
+fName = '/home/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_100'
 
 with h5py.File(fName+'.hdf5', 'r') as f:
 
@@ -51,7 +51,7 @@ masses = np.zeros(coordinates.shape[0]) + 5.9 * 10**7
 
 ### Correct coordinates for TNG simulation coordiantes
 # We will need to change cluster_ind in the future
-coordinates = TNG_DA.coord_cm_corr(cluster_ind = 0, coordinates = coordinates) 
+coordinates = TNG_DA.coord_cm_corr(cluster_ind = 1000, coordinates = coordinates) 
 
 
 ### Load shared ROCKSTAR library

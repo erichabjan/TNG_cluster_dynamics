@@ -45,7 +45,7 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
     fprintf(f,
         "# id    pos_0       pos_1       pos_2       pos_3       pos_4       pos_5       "
         "bulkvel_0      bulkvel_1      bulkvel_2      corevel_0      corevel_1      corevel_2      "
-        "b_to_a      c_to_a      A_0      A_1      A_2      mgrav    p_start    num_p\n");
+        "mgrav    p_start    num_p\n");
 
     const double dm_mass = 5.9e7;  
 

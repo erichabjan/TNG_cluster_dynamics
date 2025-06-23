@@ -12,6 +12,7 @@ import h5py #most TNG data is downloaded as hdf5 files
 import matplotlib.pyplot as plt
 import os.path
 import pandas as pd
+from IPython.display import display, Markdown
 
 baseUrl = 'http://www.tng-project.org/api/'
 
@@ -43,11 +44,16 @@ def get_cluster_props(cluster_ind):
 
     ### Make a cluster mass cut, now we have galaxy cluters
     quan_val = np.log10(5 * 10**14)
-    bool_arr = np.array(Crit200 * 10**10 / simdata['hubble']) > 10**quan_val
-    bool_ind = np.where(bool_arr)[0]
+    #bool_arr = np.array(Crit200 * 10**10 / simdata['hubble']) > 10**quan_val
+    #bool_ind = np.where(bool_arr)[0]
     Group_num = iapi.getSubhaloField('SubhaloGrNr', simulation=sim, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloGrNr', rewriteFile=0) # Import array that identifies the halo each subhalo belongs to 
     h = simdata['hubble']
-    halo_mass = Crit200[bool_arr][cluster_ind] * 10**10 / h
+    halo_mass = Crit200[cluster_ind] * 10**10 / h
+
+    if halo_mass > 10**quan_val:
+        display(Markdown(f"Cluster {cluster_ind} has a $M_{{200}}$ greater than {np.round(quan_val)} $\\log(M_\\odot)$"))
+    else:
+        display(Markdown(f"Cluster {cluster_ind} has a $M_{{200}}$ less than {np.round(quan_val)} $\\log(M_\\odot)$"))
 
     ### Pick a galaxy cluster
     #cluster_TNG = bool_ind[cluster_ind]
@@ -220,12 +226,15 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 10, Ng_jump
         else:
             dsp_g[group_dsp_arr] = 2
 
-
-    NDSp = len(np.where(dsp_g == 1)[0])
-    Nreal = len(np.where(tng_g == 1)[0])
-    NDSp_real = len(np.where((tng_g == 1) & (dsp_g == 1))[0])
-    C = NDSp_real / Nreal
-    P = NDSp_real / NDSp
+    try:
+        NDSp = len(np.where(dsp_g == 1)[0])
+        Nreal = len(np.where(tng_g == 1)[0])
+        NDSp_real = len(np.where((tng_g == 1) & (dsp_g == 1))[0])
+        C = NDSp_real / Nreal
+        P = NDSp_real / NDSp
+    except:
+        C = np.nan
+        P = np.nan
 
     return dsp_results, C, P
 
@@ -533,3 +542,50 @@ def compare_3d_2d_shape(positions_3d, velocities_3d, viewing_direction):
     # Compare 
     difference = shape_2d - shape_3d
     return shape_3d, shape_2d, difference, T
+
+def rotate_to_viewing_frame(positions: np.ndarray,
+                            velocities: np.ndarray,
+                            viewing_direction: np.ndarray):
+    """
+    Rotate 3-D positions and velocities into a frame whose +z-axis is
+    the given viewing_direction.
+
+    Parameters
+    ----------
+    positions : (N, 3) array_like
+        Original positions.
+    velocities : (N, 3) array_like
+        Original velocities.
+    viewing_direction : (3,) array_like
+        Non-zero vector that defines the new coordinate system.
+
+    Returns
+    -------
+    pos_rot : (N, 3) ndarray
+        Positions in the new frame.
+    vel_rot : (N, 3) ndarray
+        Velocities in the new frame.
+    """
+
+    # -- 1. Normalise viewing_direction (w) -----------------------------------
+    w = np.asarray(viewing_direction, dtype=np.float64)
+    if w.shape != (3,) or not np.isfinite(w).all():
+        raise ValueError("viewing_direction must be a finite 3-vector.")
+    w /= np.linalg.norm(w)            # unit vector along new z-axis
+
+    # -- 2. Build an orthonormal basis (u, v, w) ------------------------------
+    # Choose a helper vector 'a' that is guaranteed not to be parallel to w:
+    a = np.zeros(3)
+    a[np.argmin(np.abs(w))] = 1.0     # axis with smallest |component|
+    u = np.cross(w, a)
+    u /= np.linalg.norm(u)            # first axis in the sky-plane
+    v = np.cross(w, u)                # second axis, automatically unit
+
+    # Rotation matrix: columns are the basis vectors expressed in the old frame
+    R = np.column_stack((u, v, w))    # shape (3, 3), orthonormal
+
+    # -- 3. Rotate positions and velocities -----------------------------------
+    pos_rot = positions  @ R
+    vel_rot = velocities @ R
+
+    return pos_rot, vel_rot
