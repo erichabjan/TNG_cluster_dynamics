@@ -15,7 +15,7 @@ extern struct particle *copies;
 extern int64_t        *particle_halos;
 
 __attribute__((visibility("default")))
-int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles, int return_substructure) {
+int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles, int return_substructure, int64_t cluster_id) {
     printf("OpenMP: using %d threads\n", omp_get_max_threads());
 
     int64_t *orig_ids = malloc(num_particles * sizeof(int64_t));
@@ -35,7 +35,15 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
 
     find_subs(&fake_fof);
 
-    FILE *f = fopen("rockstar_subhalos_0_new.list", "w");
+    char subhalo_fname[64];
+    char member_fname[64];
+
+    snprintf(subhalo_fname, sizeof(subhalo_fname),
+             "rockstar_subhalos_%" PRId64 ".list", cluster_id);
+    snprintf(member_fname, sizeof(member_fname),
+             "rockstar_subhalo_members_%" PRId64 ".list", cluster_id);
+
+    FILE *f = fopen(subhalo_fname, "w");
     if (!f) {
         fprintf(stderr, "Failed to open output file.\n");
         free(orig_ids);
@@ -73,7 +81,7 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
     }
     fclose(f);
 
-    FILE *f2 = fopen("rockstar_subhalo_members_0.list", "w");
+    FILE *f2 = fopen(member_fname, "w");
     if (!f2) {
         fprintf(stderr, "Failed to open membership file.\n");
         free(orig_ids);
