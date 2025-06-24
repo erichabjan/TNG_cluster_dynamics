@@ -36,21 +36,21 @@ for cluster_idx in cluster_inds:
     
     print(f'Finished reprojecting Cluster {cluster_idx}')
 
-dtype = np.dtype([('ID','<i8'), ('Cluster Index','<f4'), ('Projection Vector',object), ('Cluster Mass [solar masses]','<f4'), ('x position [kpc]',object), ('y position [kpc]',object), ('z position [kpc]',object), ('x velocity [km / s]',object), ('y velocity [km / s]',object), ('z velocity [km / s]',object), ('subhalo masses [solar masses]',object)])
+dtype = np.dtype([('ID','<i8'), ('Cluster Index','<f4'), ('Projection Vector',object), ('Cluster Mass','<f4'), ('x position',object), ('y position',object), ('z position',object), ('x velocity',object), ('y velocity',object), ('z velocity',object), ('subhalo masses',object)])
 table = np.asarray(rows, dtype=dtype)
 
 coldefs = fits.ColDefs([
     fits.Column(name='ID', format='K', array=table['ID']),
     fits.Column(name='Cluster Index', format='E', array=table['Cluster Index']),
-    fits.Column(name='Projection Vector', format='PJ()', array=table['Projection Vector']),
-    fits.Column(name='Cluster Mass [solar masses]', format='E', array=table['Cluster Mass [solar masses]']),
-    fits.Column(name='x position [kpc]', format='PJ()', array=table['x position [kpc]']),
-    fits.Column(name='y position [kpc]', format='PJ()', array=table['y position [kpc]']),
-    fits.Column(name='z position [kpc]', format='PJ()', array=table['z position [kpc]']),
-    fits.Column(name='x velocity [km / s]', format='PJ()', array=table['x velocity [km / s]']),
-    fits.Column(name='y velocity [km / s]', format='PJ()', array=table['y velocity [km / s]']),
-    fits.Column(name='z velocity [km / s]', format='PJ()', array=table['z velocity [km / s]']),
-    fits.Column(name='subhalo masses [solar masses]', format='PJ()', array=table['subhalo masses [solar masses]']),
+    fits.Column(name='Projection Vector', format='PD()', array=table['Projection Vector']),
+    fits.Column(name='Cluster Mass', format='E', array=table['Cluster Mass']),
+    fits.Column(name='x position', format='PD()', array=table['x position']),
+    fits.Column(name='y position', format='PD()', array=table['y position']),
+    fits.Column(name='z position', format='PD()', array=table['z position']),
+    fits.Column(name='x velocity', format='PD()', array=table['x velocity']),
+    fits.Column(name='y velocity', format='PD()', array=table['y velocity']),
+    fits.Column(name='z velocity', format='PD()', array=table['z velocity']),
+    fits.Column(name='subhalo masses', format='PD()', array=table['subhalo masses']),
 ])
 
 hdu = fits.BinTableHDU.from_columns(coldefs)
