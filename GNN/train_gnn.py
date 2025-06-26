@@ -8,6 +8,7 @@ from functools import partial
 import numpy as np
 import tensorflow_datasets as tfds
 import tensorflow as tf
+from astropy.table import Table
 
 import numpy as np 
 import os
@@ -22,44 +23,32 @@ from gnn import GraphConvNet
 ### Add a suffix for a new model
 suffix = ''
 
-### Import data
-base_path = '/home/habjan.e/TNG/Data/GNN_SBI_data/'
-
-train = fits.open(base_path + 'GNN_data_train.fits')
-test = fits.open(base_path + 'GNN_data_test.fits')
-
-### Creat numpy arrays for data
-
-trainx = np.array([np.array(train['x position']), np.array(train['y position']), np.array(train['z velocity'])])
-trainy = np.array([np.array(train['z position']), np.array(train['x velocity']), np.array(train['y velocity'])])
-
-testx = np.array([np.array(test['x position']), np.array(test['y position']), np.array(test['z velocity'])])
-testy = np.array([np.array(test['z position']), np.array(test['x velocity']), np.array(test['y velocity'])])
-
-# Create data loaders
-batch_size = 32
-train_ds = create_dataloader(trainx, trainy, batch_size=batch_size, shuffle=True)
-test_ds = create_dataloader(testx, testy, batch_size=batch_size, shuffle=False)
+### Import data and create data loaders
+batch_file_path = "/home/habjan.e/TNG/Data/GNN_SBI_data/graph_data"
 
 ### Train model
 if __name__ == "__main__":
     # Define hyperparameters
-    epochs = 5
+    epochs = 2
     learning_rate = 1e-3
  
     # Create and train the model
-    model = GraphConvNet()
+    model = GraphConvNet(latent_size = 128, hidden_size = 256, num_mlp_layers = 3, message_passing_steps = 5)
 
-    trained_state, model, losses = train_model(
-        train_ds=train_ds, 
-        test_ds=test_ds, 
+    trained_state, model, train_losses, test_losses = train_model(
+        data_dir=batch_file_path,  
         model=model, 
-        epochs=epochs, 
-        batch_size=batch_size,
-        learning_rate=learning_rate
+        epochs=epochs,
+        learning_rate=learning_rate,
+        train_prefix = 'train',
+        test_prefix = 'test'
     )
 
     # Save model parameters
     save_path = os.getcwd() + '/GNN_models/gnn_model_params' + suffix + '.pkl'
     with open(save_path, 'wb') as f:
         pickle.dump(trained_state.params, f)
+    
+    save_data = os.getcwd() + '/Loss_arrays/'
+    np.save(save_data + 'train_loss' + suffix + '.npy', train_loss)
+    np.save(save_data + 'test_loss' + suffix + '.npy', test_loss)
