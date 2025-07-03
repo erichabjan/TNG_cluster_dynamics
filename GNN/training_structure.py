@@ -68,33 +68,30 @@ def create_train_state(model, rng_key, learning_rate, example_graph):
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
 
 @staticmethod
-def mse_loss(params, graph, target, mask, apply_fn, training=True):
+def mse_loss(params, graph, target, mask, apply_fn, training, rng=None):
     """
     Calculate weighted mean squared error loss.
-        
-    Args:
-        params: Model parameters
-        x: Input features
-        y: Target values
-        sigma: Uncertainty/error values for each target
-        apply_fn: Function to apply the model
-        rng: JAX random number generator key
-        training: Whether in training mode (for dropout, batch norm, etc.)
-            
-    Returns:
-        Weighted MSE loss value
     """
-    preds = apply_fn({'params': params}, graph, training=training)
+
+    deterministic = not training
+    kwargs = dict(deterministic=deterministic)
+
+    if not deterministic:
+        kwargs["rngs"] = {"dropout": rng}
+    
+    preds_graph = apply_fn({'params': params}, graph, **kwargs)
+    preds = preds_graph.nodes
+    print(preds.shape, target.shape)
     mse = ((preds - target) ** 2).sum(-1)
 
     return (mse * mask).sum() / mask.sum()
 
-@functools.partial(jax.jit, static_argnames="apply_fn")
-def train_step(state, graph, target, mask):
+@jax.jit
+def train_step(state, graph, target, mask, rng_key):
     """Single training step."""
     
     def loss_fn(params):
-        return mse_loss(params, graph, target, mask, state.apply_fn, training=True)
+        return mse_loss(params, graph, target, mask, state.apply_fn, training=True, rng=rng_key)
 
     grads = jax.grad(loss_fn)(state.params)
 
@@ -103,7 +100,7 @@ def train_step(state, graph, target, mask):
 @jax.jit
 def eval_step(state, graph, target, mask):
 
-    loss = mse_loss(state.params, graph, target, mask, state.apply_fn, training=False)
+    loss = mse_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
 
     return loss
 
@@ -139,7 +136,7 @@ def train_model(
         total_loss = 0
         for graph, tgt, mask in create_dataloader(data_dir, train_prefix, shuffle=True):
 
-            state = train_step(state, graph, tgt, mask)
+            state = train_step(state, graph, tgt, mask, rng_key)
             current_loss = eval_step(state, graph, tgt, mask)
             
             count += 1
@@ -150,7 +147,6 @@ def train_model(
         print(f"Step {step} | Training Loss: {train_losses[step]}")
 
         ### Testing
-        master_rng, eval_key = jax.random.split(master_rng)
         count = 0
         total_loss = 0
         for graph, tgt, mask in create_dataloader(data_dir, test_prefix, shuffle=False):

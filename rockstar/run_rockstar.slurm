@@ -12,7 +12,7 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 source ~/miniconda3/etc/profile.d/conda.sh
 source activate cluster_dyn
 
-cd /home/habjan.e/TNG/Data/rockstar_output
+cd /projects/mccleary_group/habjan.e/TNG/Data/rockstar_output
 
 cluster_id=$SLURM_ARRAY_TASK_ID
 python3 /home/habjan.e/TNG/TNG_cluster_dynamics/rockstar/sub_finder.py "$cluster_id"

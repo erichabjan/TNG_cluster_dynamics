@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import jraph
 
 ### Import FITS tables
-base_path = '/home/habjan.e/TNG/Data/GNN_SBI_data/'
+base_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/'
 train = Table.read(base_path + 'GNN_data_train.fits')
 test = Table.read(base_path + 'GNN_data_test.fits')
 
@@ -21,9 +21,10 @@ lens = np.array([len(x) for x in x_pos])
 max_len = np.max(lens)
 
 ### Set data directory, batch size, and maximum number of nodes (galaxies)
-DATA_DIR   = "/home/habjan.e/TNG/Data/GNN_SBI_data/graph_data/"
-BATCH_SIZE = 32                 
+DATA_DIR   = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph_data/"
+BATCH_SIZE = 8                 
 MAX_NODES  = 500
+LATENT_SIZE = 128
 
 print(f'The maximum value of galaxies in a cluster is {max_len} and the max nodes is {MAX_NODES}')
 
@@ -56,6 +57,7 @@ def make_graph(nodes_np: np.ndarray) -> jraph.GraphsTuple:
     nodes = jnp.asarray(nodes_np)
     N_i   = nodes.shape[0]
     empty = jnp.zeros((0,), dtype=jnp.int32)
+    dummy_globals = jnp.zeros((1, LATENT_SIZE), dtype=jnp.float32)
 
     return jraph.GraphsTuple(
         nodes=nodes,             
@@ -64,7 +66,7 @@ def make_graph(nodes_np: np.ndarray) -> jraph.GraphsTuple:
         receivers=empty,
         n_node=jnp.array([N_i], dtype=jnp.int32),
         n_edge=jnp.array([0],  dtype=jnp.int32),
-        globals=None
+        globals=dummy_globals
     )
 
 ### Function to pad a single graph

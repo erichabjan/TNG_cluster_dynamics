@@ -24,7 +24,7 @@ from gnn import GraphConvNet
 suffix = ''
 
 ### Import data and create data loaders
-batch_file_path = "/home/habjan.e/TNG/Data/GNN_SBI_data/graph_data"
+batch_file_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph_data"
 
 ### Train model
 if __name__ == "__main__":
