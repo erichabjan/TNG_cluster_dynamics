@@ -21,7 +21,7 @@ from training_structure import train_model, create_dataloader
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_40'
+suffix = '_100'
 
 ### Import data and create data loaders
 batch_file_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph_data"
@@ -29,8 +29,8 @@ batch_file_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph
 ### Train model
 if __name__ == "__main__":
     # Define hyperparameters
-    epochs = 40
-    learning_rate = 1e-3
+    epochs = 100
+    learning_rate = 1e-2
  
     # Create and train the model
     model = GraphConvNet(latent_size = 128, hidden_size = 256, num_mlp_layers = 3, message_passing_steps = 5)
@@ -49,6 +49,6 @@ if __name__ == "__main__":
     with open(save_path, 'wb') as f:
         pickle.dump(trained_state.params, f)
     
-    save_data = os.getcwd() + '/Loss_arrays/'
+    save_data = '/home/habjan.e/TNG/Sandbox_notebooks/phase_space_recon/Loss_arrays/'
     np.save(save_data + 'train_loss' + suffix + '.npy', train_losses)
     np.save(save_data + 'test_loss' + suffix + '.npy', test_losses)

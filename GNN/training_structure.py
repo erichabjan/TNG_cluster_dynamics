@@ -22,7 +22,7 @@ def create_dataloader(data_dir: str, prefix: str, shuffle: bool = True,) -> Iter
     Each *.pkl file is already one fixed-size batch, so the iterator
     simply loads one file at a time and returns:
         • graph_batch  (jraph.GraphsTuple)
-        • targets      (float32 array,  shape: B*MAX_NODES × 3)
+        • targets      (float32 array,  shape: B*MAX_NODES x 3)
         • node_mask    (float32 array,  length:  B*MAX_NODES)
 
     Parameters
@@ -44,6 +44,8 @@ def create_dataloader(data_dir: str, prefix: str, shuffle: bool = True,) -> Iter
     files   = sorted(glob.glob(pattern))
     if shuffle:
         random.shuffle(files)
+    
+    count = 0
 
     for fname in files:
         with open(fname, "rb") as fh:
@@ -55,6 +57,12 @@ def create_dataloader(data_dir: str, prefix: str, shuffle: bool = True,) -> Iter
             saved["targets"],      # jnp.ndarray
             saved["node_mask"],    # jnp.ndarray
         )
+
+        count += 1
+
+        if count == 10:
+            break
+
 
 
 def create_train_state(model, rng_key, learning_rate, example_graph):
@@ -131,13 +139,14 @@ def train_model(
         ### Training
         count = 0
         total_loss = 0
-        for graph, tgt, mask in create_dataloader(data_dir, train_prefix, shuffle=True):
+        for graph, tgt, mask in create_dataloader(data_dir, train_prefix, shuffle=False):
 
             state = train_step(state, graph, tgt, mask, rng_key)
             current_loss = eval_step(state, graph, tgt, mask)
             
             count += 1
             total_loss += float(current_loss)
+
         
         ave_train_loss = float(total_loss / max(count, 1))
         train_losses.append(ave_train_loss)
@@ -168,6 +177,8 @@ def predict(model, params, data_dir, data_prefix = 'test'):
     predictions = []
     mask_arr = []
     tgt_arr = []
+
+    count = 0
         
     # Get predictions batch by batch
     for graph, tgt, mask in create_dataloader(data_dir, data_prefix, shuffle=False):
@@ -178,7 +189,11 @@ def predict(model, params, data_dir, data_prefix = 'test'):
         tgt_arr.append(tgt)
         mask_arr.append(mask)
 
-        break
+        count += 1
+
+        if count == 10:
+            
+            break
         
     # Concatenate all batch predictions
     return jnp.concatenate(predictions, axis=0).squeeze(), jnp.concatenate(tgt_arr, axis=0).squeeze(), jnp.concatenate(mask_arr, axis=0).squeeze()

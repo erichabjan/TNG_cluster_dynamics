@@ -22,7 +22,7 @@ max_len = np.max(lens)
 
 ### Set data directory, batch size, and maximum number of nodes (galaxies)
 DATA_DIR   = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph_data/"
-BATCH_SIZE = 8                 
+BATCH_SIZE = 64                 
 MAX_NODES  = 500
 LATENT_SIZE = 128
 
@@ -76,13 +76,19 @@ def pad_single(g, max_nodes):
                                  n_node=max_nodes,
                                  n_edge=0)
 
+def explicit_mask(g, max_nodes):
+    n = g.nodes.shape[0]
+    return jnp.concatenate([jnp.ones(n, bool),
+                            jnp.zeros(max_nodes - n, bool)])
+
 
 ### This function pads the graph data so that they have the same input size
 def pad_batch(graphs, max_nodes):
 
     padded_list = [pad_single(g, max_nodes) for g in graphs]
+    mask_list   = [explicit_mask(g, max_nodes) for g in graphs]
 
-    return jraph.batch(padded_list)
+    return jraph.batch(padded_list), jnp.concatenate(mask_list) 
 
 
 ### This function pads the target lists
@@ -112,9 +118,9 @@ def main(fits_file, prefix):
 
         if batch_counter == BATCH_SIZE:
             # --- pad & save ------------------------------------------
-            padded_graph   = pad_batch(batch_graphs, MAX_NODES)
+            padded_graph, node_mask = pad_batch(batch_graphs, MAX_NODES)
             padded_targets = pad_targets(batch_targets,BATCH_SIZE, MAX_NODES)
-            node_mask = jraph.get_node_padding_mask(padded_graph)
+            #node_mask = jraph.get_node_padding_mask(padded_graph)
 
             out_path = DATA_DIR + prefix + f"_batch_{file_counter:04d}.pkl"
 
@@ -135,10 +141,10 @@ def main(fits_file, prefix):
     # If any graphs left that didn’t make a full batch, save them too
     if len(batch_graphs) > 0:
 
-        padded_graph   = pad_batch(batch_graphs, MAX_NODES)
+        padded_graph, node_mask = pad_batch(batch_graphs, MAX_NODES)
         padded_targets = pad_targets(batch_targets, len(batch_graphs), MAX_NODES)
 
-        node_mask = jraph.get_node_padding_mask(padded_graph)
+        #node_mask = jraph.get_node_padding_mask(padded_graph)
 
         out_path = DATA_DIR + prefix + f"_batch_{file_counter:04d}.pkl"
 
