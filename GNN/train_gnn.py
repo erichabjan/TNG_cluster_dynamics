@@ -6,8 +6,8 @@ from flax.training import train_state
 from sklearn.model_selection import train_test_split
 from functools import partial
 import numpy as np
-import tensorflow_datasets as tfds
-import tensorflow as tf
+#import tensorflow_datasets as tfds
+#import tensorflow as tf
 from astropy.table import Table
 
 import numpy as np 
@@ -21,7 +21,7 @@ from training_structure import train_model, create_dataloader
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = ''
+suffix = '_40'
 
 ### Import data and create data loaders
 batch_file_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph_data"
@@ -29,7 +29,7 @@ batch_file_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph
 ### Train model
 if __name__ == "__main__":
     # Define hyperparameters
-    epochs = 2
+    epochs = 40
     learning_rate = 1e-3
  
     # Create and train the model
@@ -50,5 +50,5 @@ if __name__ == "__main__":
         pickle.dump(trained_state.params, f)
     
     save_data = os.getcwd() + '/Loss_arrays/'
-    np.save(save_data + 'train_loss' + suffix + '.npy', train_loss)
-    np.save(save_data + 'test_loss' + suffix + '.npy', test_loss)
+    np.save(save_data + 'train_loss' + suffix + '.npy', train_losses)
+    np.save(save_data + 'test_loss' + suffix + '.npy', test_losses)

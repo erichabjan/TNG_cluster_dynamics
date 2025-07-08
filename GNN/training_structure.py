@@ -10,9 +10,6 @@ import time
 import numpy as np
 from functools import partial
 
-import tensorflow_datasets as tfds
-import tensorflow as tf
-
 import os, glob, pickle, random
 from typing import Iterator, Tuple
 import jraph
@@ -161,3 +158,27 @@ def train_model(
         print(f"Step {step} | Test Loss: {test_losses[step]}")
 
     return state, model, np.array(train_losses), np.array(test_losses)
+
+@staticmethod
+def predict(model, params, data_dir, data_prefix = 'test'):
+    """
+    Make predictions with a trained model.
+    """
+        
+    predictions = []
+    mask_arr = []
+    tgt_arr = []
+        
+    # Get predictions batch by batch
+    for graph, tgt, mask in create_dataloader(data_dir, data_prefix, shuffle=False):
+        # Forward pass without dropout
+        preds = model.apply({'params': params}, graph, deterministic = True)
+
+        predictions.append(preds.nodes)
+        tgt_arr.append(tgt)
+        mask_arr.append(mask)
+
+        break
+        
+    # Concatenate all batch predictions
+    return jnp.concatenate(predictions, axis=0).squeeze(), jnp.concatenate(tgt_arr, axis=0).squeeze(), jnp.concatenate(mask_arr, axis=0).squeeze()

@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=gnn_train
 #SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/phase_space_recon/gnn_slurm_logs/gnn_%j.log
-#SBATCH --time=03:00:00
-#SBATCH --mem=64G
-#SBATCH --partition=short
-# SBATCH --partition=gpu
-# SBATCH --gres=gpu:1
+#SBATCH --time=8:00:00
+#SBATCH --mem=24G
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 
 # Load CUDA module
@@ -13,20 +12,15 @@ module load cuda/12.3.0
 
 # Activate the conda environment with JAX+CUDA support
 source ~/miniconda3/etc/profile.d/conda.sh
-conda activate cluster_dyn
+conda activate cl_dyn
 
 # Unset any previously set CUDA-related environment variables
 unset LD_LIBRARY_PATH
 unset XLA_FLAGS
 
 # Set correct CUDA environmental variables
-export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
-export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$CUDA_HOME/lib64:$CUDA_HOME/extras/CUPTI/lib64:$LD_LIBRARY_PATH"
 export XLA_FLAGS="--xla_gpu_cuda_data_dir=$CUDA_HOME"
-
-# To address CUBLAS issues, set memory limits
-export TF_FORCE_GPU_ALLOW_GROWTH=true 
-export XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 
 
 # Print debug information
 echo "CUDA_HOME: $CUDA_HOME"
