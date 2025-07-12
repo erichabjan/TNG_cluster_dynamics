@@ -45,7 +45,7 @@ def create_dataloader(data_dir: str, prefix: str, shuffle: bool = True,) -> Iter
     if shuffle:
         random.shuffle(files)
     
-    count = 0
+    #count = 0
 
     for fname in files:
         with open(fname, "rb") as fh:
@@ -58,17 +58,17 @@ def create_dataloader(data_dir: str, prefix: str, shuffle: bool = True,) -> Iter
             saved["node_mask"],    # jnp.ndarray
         )
 
-        count += 1
+        #count += 1
 
-        if count == 10:
-            break
+        #if count == 10:
+         #   break
 
 
 
-def create_train_state(model, rng_key, learning_rate, example_graph):
+def create_train_state(model, rng_key, learning_rate, grad_clipping, example_graph):
     
-    params = model.init(rng_key, example_graph)['params']
-    optimizer = optax.adamw(learning_rate)
+    params = model.init(rng_key, example_graph, deterministic = False)['params']
+    optimizer = optax.chain(optax.clip_by_global_norm(grad_clipping), optax.adam(learning_rate))
     
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
 
@@ -86,10 +86,15 @@ def mse_loss(params, graph, target, mask, apply_fn, training, rng=None):
     
     preds_graph = apply_fn({'params': params}, graph, **kwargs)
     preds = preds_graph.nodes
-    print(preds.shape, target.shape)
+    print(preds.shape, target.shape, mask.shape)
     mse = ((preds - target) ** 2).sum(-1)
 
-    return (mse * mask).sum() / mask.sum()
+    print(mse)
+
+    mse_masked = (mse * mask).sum() / mask.sum()
+    print(mse_masked)
+
+    return mse_masked
 
 @jax.jit
 def train_step(state, graph, target, mask, rng_key):
@@ -114,6 +119,7 @@ def train_model(
         model, 
         epochs=1000, 
         learning_rate=10**-4,
+        grad_clipping = 1,
         train_prefix = 'train',
         test_prefix = 'test'
 ):
@@ -127,7 +133,7 @@ def train_model(
         create_dataloader(data_dir, train_prefix, shuffle=False)
     )
     
-    state = create_train_state(model, init_key, learning_rate, example_graph)
+    state = create_train_state(model, init_key, learning_rate, grad_clipping, example_graph)
     
     # Training loop
     train_losses = []
@@ -178,7 +184,7 @@ def predict(model, params, data_dir, data_prefix = 'test'):
     mask_arr = []
     tgt_arr = []
 
-    count = 0
+    #count = 0
         
     # Get predictions batch by batch
     for graph, tgt, mask in create_dataloader(data_dir, data_prefix, shuffle=False):
@@ -189,11 +195,11 @@ def predict(model, params, data_dir, data_prefix = 'test'):
         tgt_arr.append(tgt)
         mask_arr.append(mask)
 
-        count += 1
+        #count += 1
 
-        if count == 10:
+        #if count == 10:
             
-            break
+         #   break
         
     # Concatenate all batch predictions
     return jnp.concatenate(predictions, axis=0).squeeze(), jnp.concatenate(tgt_arr, axis=0).squeeze(), jnp.concatenate(mask_arr, axis=0).squeeze()

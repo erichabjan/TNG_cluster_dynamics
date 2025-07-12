@@ -21,7 +21,7 @@ from training_structure import train_model, create_dataloader
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_100'
+suffix = '_best'
 
 ### Import data and create data loaders
 batch_file_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph_data"
@@ -30,16 +30,24 @@ batch_file_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/graph
 if __name__ == "__main__":
     # Define hyperparameters
     epochs = 100
-    learning_rate = 1e-2
+
+    total_steps = epochs * 10
+    warm_up = int(0.05 * total_steps)
+    decay = int(total_steps - warm_up)
+
+    learning_rate = optax.warmup_cosine_decay_schedule(init_value = 0.0, peak_value = 3e-4, warmup_steps = warm_up, decay_steps = decay, end_value = 3e-5)
+    #learning_rate = 10**-4
+    gradient_clipping = 1
  
     # Create and train the model
-    model = GraphConvNet(latent_size = 128, hidden_size = 256, num_mlp_layers = 3, message_passing_steps = 5)
+    model = GraphConvNet(latent_size = 128, hidden_size = 256, num_mlp_layers = 3, message_passing_steps = 5, norm = "graph")
 
     trained_state, model, train_losses, test_losses = train_model(
         data_dir=batch_file_path,  
         model=model, 
         epochs=epochs,
         learning_rate=learning_rate,
+        grad_clipping=gradient_clipping,
         train_prefix = 'train',
         test_prefix = 'test'
     )

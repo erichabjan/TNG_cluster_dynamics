@@ -6,6 +6,8 @@ import jraph
 from typing import Callable, Sequence
 import jax.numpy as jnp
 
+import functools
+
 class MLP(nn.Module):
     """Multi-layer perceptron with customizable activation."""
     
@@ -14,7 +16,7 @@ class MLP(nn.Module):
     dropout_rate: float = 0.0
     
     @nn.compact
-    def __call__(self, x, deterministic=True):
+    def __call__(self, x, deterministic):
         for i, features in enumerate(self.feature_sizes[:-1]):
             x = nn.Dense(features)(x)
             x = self.activation(x)
@@ -49,6 +51,46 @@ class PairNorm(nn.Module):
         )
         
         return features_normalized
+
+class GraphNorm(nn.Module):
+    eps: float = 1e-5
+
+    @nn.compact
+    def __call__(self, x, counts, deterministic):
+        """
+        x       : (N_total, F)  – node (or edge) features, already padded
+        counts  : (G,)          – number of nodes (or edges) per graph
+        """
+        N_total   = x.shape[0]                 # static, from padding
+        G         = counts.shape[0]            # static, max #graphs
+
+        # ------------------------------------------------------------------
+        # Build segment-ids [0,0,0,1,1,2,2,2,…] without jnp.repeat
+        # ------------------------------------------------------------------
+        starter    = jnp.zeros((N_total,), dtype=jnp.int32)
+        # indices where each graph starts: 0, n0, n0+n1, ...
+        offsets    = jnp.cumsum(counts) - counts
+        starter    = starter.at[offsets].set(1)
+        seg_ids    = jnp.cumsum(starter) - 1      # now the desired 0..G-1 ids
+        # ------------------------------------------------------------------
+
+        # Per-graph mean
+        sum_per_g  = jax.ops.segment_sum(x, seg_ids, G)
+        mean_per_g = sum_per_g / counts[:, None]
+        centred    = x - mean_per_g[seg_ids]
+
+        # Per-graph std
+        sq_sum_per_g = jax.ops.segment_sum(centred**2, seg_ids, G)
+        var_per_g    = sq_sum_per_g / counts[:, None]
+        std_per_g    = jnp.sqrt(var_per_g + self.eps)
+        x_hat        = centred / std_per_g[seg_ids]
+
+        # Learnable affine
+        gamma = self.param("gamma", nn.initializers.ones,  (x.shape[-1],))
+        beta = self.param("beta",  nn.initializers.zeros, (x.shape[-1],))
+        return gamma * x_hat + beta
+
+
 
 
 def get_node_mlp_updates(mlp_feature_sizes: Sequence[int], dropout_rate: float = 0.0, 
@@ -122,27 +164,42 @@ class GraphConvNet(nn.Module):
     dropout_rate: float = 0.1
     
     @nn.compact
-    def __call__(self, graph: jraph.GraphsTuple, deterministic=True) -> jraph.GraphsTuple:
+    def __call__(self, graph: jraph.GraphsTuple, deterministic) -> jraph.GraphsTuple:
         """Apply GNN to predict velocity field."""
         
         mlp_feature_sizes = [self.hidden_size] * self.num_mlp_layers + [self.latent_size]
         
         # Initial embedding
         if graph.edges is None:
-            embedder = jraph.GraphMapFeatures(
-                embed_node_fn=MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate)
-            )
+            mlp_node_embed = MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate)
+            embed_node_fn = functools.partial(mlp_node_embed, deterministic=deterministic)
+            embedder = jraph.GraphMapFeatures(embed_node_fn=embed_node_fn)
+
         else:
-            embedder = jraph.GraphMapFeatures(
-                embed_node_fn=MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate),
-                embed_edge_fn=MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate),
-            )
+            mlp_node_embed = MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate)
+            mlp_edge_embed = MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate)
+
+            embed_node_fn = functools.partial(mlp_node_embed, deterministic=deterministic)
+            embed_edge_fn = functools.partial(mlp_edge_embed, deterministic=deterministic)
+
+            embedder = jraph.GraphMapFeatures(embed_node_fn=embed_node_fn, embed_edge_fn=embed_edge_fn)
         
         graph = embedder(graph)
         
         # Ensure globals are properly shaped
         if graph.globals.ndim > 1:
             graph = graph._replace(globals=graph.globals.reshape(graph.globals.shape[0], -1))
+        
+
+        # Apply normalization
+        if self.norm == "layer":
+            norm = nn.LayerNorm()
+        elif self.norm == "pair":
+            norm = PairNorm()
+        elif self.norm == "graph":
+            norm = GraphNorm()
+        else:
+            norm = lambda x: x  # Identity
         
         # Message passing steps
         for step in range(self.message_passing_steps):
@@ -191,25 +248,19 @@ class GraphConvNet(nn.Module):
             else:
                 graph = graph_net(graph)
             
-            # Apply normalization
-            if self.norm == "layer":
-                norm = nn.LayerNorm()
-            elif self.norm == "pair":
-                norm = PairNorm()
-            else:
-                norm = lambda x: x  # Identity
-            
             if graph.nodes is not None:
-                graph = graph._replace(nodes=norm(graph.nodes))
+                if self.norm == 'graph':
+                    graph = graph._replace(nodes=norm(graph.nodes, graph.n_node, deterministic))
+                else:
+                    graph = graph._replace(nodes=norm(graph.nodes))
             if graph.edges is not None:
-                graph = graph._replace(edges=norm(graph.edges))
+                if self.norm == 'graph':
+                    graph = graph._replace(edges=norm(graph.edges, graph.n_edge, deterministic))
+                else: 
+                    graph = graph._replace(edges=norm(graph.edges))
         
         # Final decoder to output dimension
-        decoder = jraph.GraphMapFeatures(
-            embed_node_fn=MLP(
-                [self.hidden_size] * self.num_mlp_layers + [self.output_dim],
-                dropout_rate=self.dropout_rate
-            )
-        )
+        decode_node_mlp = MLP([self.hidden_size] * self.num_mlp_layers + [self.output_dim], dropout_rate=self.dropout_rate)
+        decoder = jraph.GraphMapFeatures(embed_node_fn=functools.partial(decode_node_mlp, deterministic=deterministic))
         
         return decoder(graph)
