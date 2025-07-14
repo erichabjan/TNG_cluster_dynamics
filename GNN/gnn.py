@@ -46,9 +46,7 @@ class PairNorm(nn.Module):
         feature_l2_mean = jnp.sqrt(jnp.mean(jnp.square(feature_l2)))
         
         # Normalize
-        features_normalized = (
-            feature_centered / (feature_l2 + eps) * feature_l2_mean * rescale_factor
-        )
+        features_normalized = (feature_centered / (feature_l2 + eps) * feature_l2_mean * rescale_factor)
         
         return features_normalized
 
@@ -57,37 +55,31 @@ class GraphNorm(nn.Module):
 
     @nn.compact
     def __call__(self, x, counts, deterministic):
-        """
-        x       : (N_total, F)  – node (or edge) features, already padded
-        counts  : (G,)          – number of nodes (or edges) per graph
-        """
-        N_total   = x.shape[0]                 # static, from padding
-        G         = counts.shape[0]            # static, max #graphs
 
-        # ------------------------------------------------------------------
-        # Build segment-ids [0,0,0,1,1,2,2,2,…] without jnp.repeat
-        # ------------------------------------------------------------------
+        N_total = x.shape[0]
+        G = counts.shape[0] # max number of graphs
+
         starter    = jnp.zeros((N_total,), dtype=jnp.int32)
-        # indices where each graph starts: 0, n0, n0+n1, ...
+        # indices where each graph starts
         offsets    = jnp.cumsum(counts) - counts
         starter    = starter.at[offsets].set(1)
-        seg_ids    = jnp.cumsum(starter) - 1      # now the desired 0..G-1 ids
-        # ------------------------------------------------------------------
+        seg_ids    = jnp.cumsum(starter) - 1
 
-        # Per-graph mean
+        # graph mean
         sum_per_g  = jax.ops.segment_sum(x, seg_ids, G)
         mean_per_g = sum_per_g / counts[:, None]
         centred    = x - mean_per_g[seg_ids]
 
-        # Per-graph std
+        # graph standard deviation
         sq_sum_per_g = jax.ops.segment_sum(centred**2, seg_ids, G)
         var_per_g    = sq_sum_per_g / counts[:, None]
         std_per_g    = jnp.sqrt(var_per_g + self.eps)
         x_hat        = centred / std_per_g[seg_ids]
 
-        # Learnable affine
+        # learnable affine transform
         gamma = self.param("gamma", nn.initializers.ones,  (x.shape[-1],))
         beta = self.param("beta",  nn.initializers.zeros, (x.shape[-1],))
+
         return gamma * x_hat + beta
 
 
@@ -165,7 +157,7 @@ class GraphConvNet(nn.Module):
     
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple, deterministic) -> jraph.GraphsTuple:
-        """Apply GNN to predict velocity field."""
+        """Apply GNN to predict unobserved fields."""
         
         mlp_feature_sizes = [self.hidden_size] * self.num_mlp_layers + [self.latent_size]
         
