@@ -25,49 +25,24 @@ print(f"Detected CPUs (multiprocessing): {multiprocessing.cpu_count()}")
 import time
 start = time.time()
 
-### Cluster ID 
+### Cluster ID and DM model 
 
-parser = argparse.ArgumentParser(description="Script that accepts a string input.")
-parser.add_argument("input_string", type=str, help="The input string to process")
+parser = argparse.ArgumentParser(description="BAHAMAS script")
+parser.add_argument("cluster_id", type=str, help="ID of the cluster to process")
+parser.add_argument("dm_model", type=str, help="The Dark Matter model to process")
 args = parser.parse_args()
-cluster_id = args.input_string
-print('Processing Cluster ' + cluster_id)
+cluster_id = args.cluster_id
+dm_folder = args.dm_model
+print('Processing Cluster ' + cluster_id + ' in ' + dm_folder)
 
-### Download particle data from TNG
+### Import data
 
-halo_cutout_url = f'http://www.tng-project.org/api/TNG300-1/snapshots/99/halos/' + cluster_id + '/cutout.hdf5' 
-params={'dm':'Coordinates,ParticleIDs,Velocities'}
-fName = '/home/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_' + cluster_id
-cutout = iapi.get(halo_cutout_url, params = params, fName = fName)
+data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/BAHAMAS_data/dataGiuliaCerini/" + dm_folder + "/GrNm_0" + cluster_id + ".npz")
 
-### Import downloaded cluster
-
-with h5py.File(fName+'.hdf5', 'r') as f:
-
-    coordinates = f['PartType1']['Coordinates'][:]
-    velocities = f['PartType1']['Velocities'][:]
-    ids = f['PartType1']['ParticleIDs'][:]
-
-### Hard-coded particle DM mass
-masses = np.zeros(coordinates.shape[0]) + 5.9 * 10**7
-
-### Take a fraction of the data
-
-#frac = 0.001
-
-#num_particles = coordinates.shape[0]
-
-#part_frac = int(num_particles * frac)
-
-#coordinates = coordinates[:part_frac, :]
-#velocities = velocities[:part_frac, :]
-#ids = ids[:part_frac]
-#masses = masses[:part_frac]
-
-### Correct coordinates for TNG simulation coordiantes
-cluster_id = np.int64(cluster_id)
-coordinates = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = coordinates) 
-
+coordinates = data['dm_pos'] - data['CoP']
+velocities = data['dm_vel']
+masses = data['dm_mass']
+ids = np.arange(masses.shape[0])
 
 ### Load shared ROCKSTAR library
 
@@ -118,15 +93,23 @@ print("numpy itemsize:", structured.dtype.itemsize)
 
 ### import `rockstar_analyze_fof_group`
 
-lib.rockstar_analyze_fof_group.argtypes = [ctypes.POINTER(Particle), ctypes.c_int64, ctypes.c_int, ctypes.c_int64]
+lib.rockstar_analyze_fof_group.argtypes = [ctypes.POINTER(Particle), ctypes.c_int64, ctypes.c_int, ctypes.c_double, ctypes.c_char_p, ctypes.c_char_p]
 lib.rockstar_analyze_fof_group.restype = ctypes.c_int
 
 ### Run the code
 
 num_particles = coordinates.shape[0]
 
-status = lib.rockstar_analyze_fof_group(particles, num_particles, 1, cluster_id)
+dark_matter_particle_mass = masses[0]
+
+subhalo_fname = f"bahamas_rockstar_subhalos_{dm_folder}_{cluster_id}.list"
+member_fname = f"bahamas_rockstar_subhalo_members_{dm_folder}_{cluster_id}.list"
+
+subhalo_fname_b  = subhalo_fname.encode("utf-8")
+member_fname_b   = member_fname.encode("utf-8")
+
+status = lib.rockstar_analyze_fof_group(particles, num_particles, 1, dark_matter_particle_mass, subhalo_fname_b, member_fname_b)
 print("Rockstar returned:", status)
 
 end = time.time()
-print(f"Elapsed time: {(end - start)/60:.2f} minutes")
+print(f"Elapsed time: {(end - start)/60:.2f} minutes for cluster " + cluster_id + ' in ' + dm_folder)

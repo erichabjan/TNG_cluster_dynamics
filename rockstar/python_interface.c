@@ -15,7 +15,7 @@ extern struct particle *copies;
 extern int64_t        *particle_halos;
 
 __attribute__((visibility("default")))
-int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles, int return_substructure, int64_t cluster_id) {
+int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles, int return_substructure, double dm_mass, const char *subhalo_fname, const char *member_fname) {
     printf("OpenMP: using %d threads\n", omp_get_max_threads());
 
     int64_t *orig_ids = malloc(num_particles * sizeof(int64_t));
@@ -35,14 +35,6 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
 
     find_subs(&fake_fof);
 
-    char subhalo_fname[64];
-    char member_fname[64];
-
-    snprintf(subhalo_fname, sizeof(subhalo_fname),
-             "rockstar_subhalos_%" PRId64 ".list", cluster_id);
-    snprintf(member_fname, sizeof(member_fname),
-             "rockstar_subhalo_members_%" PRId64 ".list", cluster_id);
-
     FILE *f = fopen(subhalo_fname, "w");
     if (!f) {
         fprintf(stderr, "Failed to open output file.\n");
@@ -54,8 +46,6 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
         "# id    pos_0       pos_1       pos_2       pos_3       pos_4       pos_5       "
         "bulkvel_0      bulkvel_1      bulkvel_2      corevel_0      corevel_1      corevel_2      "
         "mgrav    p_start    num_p\n");
-
-    const double dm_mass = 5.9e7;  
 
     for (int64_t i = h_start; i < num_halos; i++) {
         struct halo *h = &halos[i];

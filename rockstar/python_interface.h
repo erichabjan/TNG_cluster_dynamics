@@ -4,6 +4,6 @@
 #include <stdint.h>
 #include "fof.h"
 
-int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles, int return_substructure, int64_t cluster_id);
+int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles, int return_substructure, double dm_mass, const char *subhalo_fname, const char *member_fname);
 
 #endif
