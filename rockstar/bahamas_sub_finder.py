@@ -93,7 +93,7 @@ print("numpy itemsize:", structured.dtype.itemsize)
 
 ### import `rockstar_analyze_fof_group`
 
-lib.rockstar_analyze_fof_group.argtypes = [ctypes.POINTER(Particle), ctypes.c_int64, ctypes.c_int, ctypes.c_double, ctypes.c_char_p, ctypes.c_char_p]
+lib.rockstar_analyze_fof_group.argtypes = [ctypes.POINTER(Particle), ctypes.c_int64, ctypes.c_int, ctypes.c_double, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_double]
 lib.rockstar_analyze_fof_group.restype = ctypes.c_int
 
 ### Run the code
@@ -105,10 +105,13 @@ dark_matter_particle_mass = masses[0]
 subhalo_fname = f"bahamas_rockstar_subhalos_{dm_folder}_{cluster_id}.list"
 member_fname = f"bahamas_rockstar_subhalo_members_{dm_folder}_{cluster_id}.list"
 
+min_particles_in_subhalo = 250
+fof_fraction = 0.5
+
 subhalo_fname_b  = subhalo_fname.encode("utf-8")
 member_fname_b   = member_fname.encode("utf-8")
 
-status = lib.rockstar_analyze_fof_group(particles, num_particles, 1, dark_matter_particle_mass, subhalo_fname_b, member_fname_b)
+status = lib.rockstar_analyze_fof_group(particles, num_particles, 1, dark_matter_particle_mass, subhalo_fname_b, member_fname_b, min_particles_in_subhalo, fof_fraction)
 print("Rockstar returned:", status)
 
 end = time.time()
