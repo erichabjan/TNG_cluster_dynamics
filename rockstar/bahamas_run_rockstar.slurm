@@ -3,8 +3,8 @@
 #SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/rockstar_slurm_logs/bahamas_run_rockstar_%j.log
 #SBATCH --array=0-4
 #SBATCH --cpus-per-task=1
-#SBATCH --time=2-00:00:00
-#SBATCH --mem=15G
+#SBATCH --time=00:15:00
+#SBATCH --mem=10G
 #SBATCH --partition=short
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK

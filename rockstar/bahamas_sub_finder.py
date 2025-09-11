@@ -93,7 +93,10 @@ print("numpy itemsize:", structured.dtype.itemsize)
 
 ### import `rockstar_analyze_fof_group`
 
-lib.rockstar_analyze_fof_group.argtypes = [ctypes.POINTER(Particle), ctypes.c_int64, ctypes.c_int, ctypes.c_double, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_double]
+lib.rockstar_analyze_fof_group.argtypes = [ctypes.POINTER(Particle), ctypes.c_int64, ctypes.c_int, 
+                                           ctypes.c_double, ctypes.c_char_p, ctypes.c_char_p, 
+                                           ctypes.c_int, ctypes.c_double, ctypes.c_double, 
+                                           ctypes.c_double, ctypes.c_double]
 lib.rockstar_analyze_fof_group.restype = ctypes.c_int
 
 ### Run the code
@@ -102,16 +105,27 @@ num_particles = coordinates.shape[0]
 
 dark_matter_particle_mass = masses[0]
 
-subhalo_fname = f"bahamas_rockstar_subhalos_{dm_folder}_{cluster_id}.list"
-member_fname = f"bahamas_rockstar_subhalo_members_{dm_folder}_{cluster_id}.list"
+suffix = ''
 
-min_particles_in_subhalo = 250
+subhalo_fname = f"bahamas_rockstar_subhalos_{dm_folder}_{cluster_id}" + suffix + ".list"
+member_fname = f"bahamas_rockstar_subhalo_members_{dm_folder}_{cluster_id}" + suffix + ".list"
+
+min_particles_in_subhalo = 50
 fof_fraction = 0.5
+
+### arugments for extra subhalo properties
+dm_mass_h = masses[0] * data['h']
+softening_in_Mpc_over_h = 4 / 10**3   # BAHAMAS is fixed at 4 kpc/h -> convert to Mpc/h
+a_scale_factor = data['a']
 
 subhalo_fname_b  = subhalo_fname.encode("utf-8")
 member_fname_b   = member_fname.encode("utf-8")
 
-status = lib.rockstar_analyze_fof_group(particles, num_particles, 1, dark_matter_particle_mass, subhalo_fname_b, member_fname_b, min_particles_in_subhalo, fof_fraction)
+status = lib.rockstar_analyze_fof_group(particles, num_particles, 1, 
+                                        dark_matter_particle_mass, subhalo_fname_b, 
+                                        member_fname_b, min_particles_in_subhalo, 
+                                        fof_fraction, dm_mass_h,
+                                        softening_in_Mpc_over_h, a_scale_factor)
 print("Rockstar returned:", status)
 
 end = time.time()
