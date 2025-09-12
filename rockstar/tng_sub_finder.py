@@ -50,6 +50,7 @@ with h5py.File(fName+'.hdf5', 'r') as f:
 
 ### Hard-coded particle DM mass
 masses = np.zeros(coordinates.shape[0]) + 5.9 * 10**7
+coordinates = coordinates # * 10**-3                     #Convert to Mpc/h
 
 ### Take a fraction of the data
 
@@ -140,7 +141,7 @@ fof_fraction = 0.5
 
 ### arugments for extra subhalo properties
 dm_mass_h = 4e7
-softening_in_Mpc_over_h = 0.2 * (300 / 2500)   # b = 0.2 with L = 300 and N_dm = 2500
+softening_in_Mpc_over_h = 1 * 10**-3  # This value is taken from Nelson et al. 2019
 a_scale_factor = 1
 
 subhalo_fname_b  = subhalo_fname.encode("utf-8")

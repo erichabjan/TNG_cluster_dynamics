@@ -18,11 +18,20 @@ extern int64_t        *particle_halos;
 extern int    MIN_HALO_PARTICLES;
 extern double FOF_FRACTION; 
 
+void calc_additional_halo_props(struct halo *h);
+
+extern double PARTICLE_MASS;   /* Msun/h */
+extern double FORCE_RES;       /* Mpc/h   */
+extern double SCALE_NOW;       /* a = 1/(1+z) */
+extern int    BOUND_PROPS;     /* 1 = use bound particles for props */
+
 __attribute__((visibility("default")))
 int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles, 
                                int return_substructure, double dm_mass, 
                                const char *subhalo_fname, const char *member_fname,
-                               int min_halo_particle_size, double fof_fraction) {
+                               int min_halo_particle_size, double fof_fraction,
+                               double dm_mass_in_Msun_over_h, double softening_in_Mpc_over_h,
+                               double a_scale_factor) {
     
     /* Save current global config so we can restore after */
     int    old_min_halo_particle_size = MIN_HALO_PARTICLES;
@@ -50,61 +59,21 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
     p = particles;
     int64_t h_start = num_halos;
 
+    PARTICLE_MASS = dm_mass_in_Msun_over_h;   /* not Msun */
+    FORCE_RES     = softening_in_Mpc_over_h;  /* comoving */
+    SCALE_NOW     = a_scale_factor;           /* e.g., 1.0 at z=0 */
+    BOUND_PROPS   = 1;                        /* or 0 for all members */
+
     /* Run ROCKSTAR*/
     find_subs(&fake_fof);
+
+    for (int64_t i = h_start; i < num_halos; ++i) {
+        calc_additional_halo_props(&halos[i]);
+        }
 
     /* Restore global variables */
     MIN_HALO_PARTICLES = old_min_halo_particle_size;
     FOF_FRACTION         = old_fof_fraction;
-
-    /* Compute vrms for subhalos */
-    int64_t n_new = num_halos - h_start;
-    if (n_new > 0) {
-        double *sum_sq = calloc((size_t)n_new, sizeof(double));
-        int64_t *counts = calloc((size_t)n_new, sizeof(int64_t));
-        if (!sum_sq || !counts) {
-            fprintf(stderr, "Failed to allocate vrms accumulators.\n");
-            free(orig_ids);
-            free(sum_sq); free(counts);
-            return -1;
-        }
-
-        /* Single pass over all particles */
-        for (int64_t j = 0; j < num_particles; j++) {
-            int64_t hid = particle_halos[j];       /* global halo index */
-            if (hid < h_start || hid >= num_halos) {
-                continue; /* not one of the new halos we just built */
-            }
-            int64_t local = hid - h_start;
-
-            /* particle velocity components (pos[3..5]) */
-            double vx = particles[j].pos[3];
-            double vy = particles[j].pos[4];
-            double vz = particles[j].pos[5];
-
-            /* subtract halo bulk velocity */
-            double dvx = vx - halos[hid].bulkvel[0];
-            double dvy = vy - halos[hid].bulkvel[1];
-            double dvz = vz - halos[hid].bulkvel[2];
-
-            /* accumulate squared speed residual */
-            sum_sq[local] += dvx*dvx + dvy*dvy + dvz*dvz;
-            counts[local] += 1;
-        }
-
-        /* finalize vrms per halo */
-        for (int64_t i = h_start; i < num_halos; i++) {
-            int64_t local = i - h_start;
-            if (counts[local] > 0) {
-                halos[i].vrms = sqrt(sum_sq[local] / (double)counts[local]);
-            } else {
-                halos[i].vrms = 0.0; /* defensive */
-            }
-        }
-
-        free(sum_sq);
-        free(counts);
-    }
 
     /* Make a subhalo file*/
     FILE *f = fopen(subhalo_fname, "w");
@@ -117,7 +86,7 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
     /* Subhalo file columns */
     fprintf(f,
         "# id    pos_0       pos_1       pos_2       pos_3       pos_4       pos_5       "
-        "mgrav      vrms    p_start    num_p\n");
+        "mgrav      vrms    vmax    rvmax    p_start    num_p\n");
 
     for (int64_t i = h_start; i < num_halos; i++) {
         struct halo *h = &halos[i];
@@ -129,6 +98,8 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
             "%.6f "  "%.6f "  "%.6f "  // pos[3..5]
             "%.6e "           // mgrav
             "%.6e "           // vrms
+            "%.6e "           // vmax
+            "%.6e "           // rvmax
             "%" PRId64 " "
             "%" PRId64 "\n",           // num_p
             hid,
@@ -136,6 +107,8 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
             h->pos[3], h->pos[4], h->pos[5],
             grav_mass,
             h->vrms,
+            h->vmax,
+            h->rvmax,
             h->p_start,
             h->num_p);
     }
@@ -150,13 +123,11 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
     }
 
     /* Add entries to membership file*/
-    for (int64_t i = h_start; i < num_halos; i++) {
-        int64_t hid = i - h_start;
-        for (int64_t j = 0; j < num_particles; j++) {
-            if (particle_halos[j] == i) {
-                int64_t real_id = orig_ids[j];
-                fprintf(f2, "%" PRId64 " %" PRId64 "\n", hid, real_id);
-            }
+    for (int64_t j=0; j<num_particles; ++j) {
+        int64_t hid = particle_halos[j];
+        if (hid >= h_start && hid < num_halos) {
+            int64_t local = hid - h_start;
+            fprintf(f2, "%" PRId64 " %" PRId64 "\n", (int64_t)local, (int64_t)orig_ids[j]);
         }
     }
     fclose(f2);
