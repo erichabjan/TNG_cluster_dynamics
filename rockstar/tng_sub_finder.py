@@ -10,7 +10,7 @@ import ctypes
 from pathlib import Path
 
 import sys
-sys.path.append("/home/habjan.e/TNG/Codes")
+sys.path.append("/home/habjan.e/TNG/Codes/TNG_workshop")
 sys.path.append("/home/habjan.e/TNG/TNG_cluster_dynamics")
 
 import iapi_TNG as iapi
@@ -34,10 +34,9 @@ cluster_id = args.cluster_ID
 print('Processing Cluster ' + cluster_id)
 
 ### Download particle data from TNG
-
 halo_cutout_url = f'http://www.tng-project.org/api/TNG300-1/snapshots/99/halos/' + cluster_id + '/cutout.hdf5' 
 params={'dm':'Coordinates,ParticleIDs,Velocities'}
-fName = '/home/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_' + cluster_id
+fName = '/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_' + cluster_id
 cutout = iapi.get(halo_cutout_url, params = params, fName = fName)
 
 ### Import downloaded cluster
@@ -50,24 +49,12 @@ with h5py.File(fName+'.hdf5', 'r') as f:
 
 ### Hard-coded particle DM mass
 masses = np.zeros(coordinates.shape[0]) + 5.9 * 10**7
-coordinates = coordinates # * 10**-3                     #Convert to Mpc/h
-
-### Take a fraction of the data
-
-#frac = 0.001
-
-#num_particles = coordinates.shape[0]
-
-#part_frac = int(num_particles * frac)
-
-#coordinates = coordinates[:part_frac, :]
-#velocities = velocities[:part_frac, :]
-#ids = ids[:part_frac]
-#masses = masses[:part_frac]
+coordinates = coordinates
 
 ### Correct coordinates for TNG simulation coordiantes
 cluster_id = np.int64(cluster_id)
 coordinates = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = coordinates) 
+coordinates = coordinates * 10**-3     #Convert to Mpc/h
 
 
 ### Load shared ROCKSTAR library
@@ -96,8 +83,12 @@ N = coordinates.shape[0]
 structured = np.empty(N, dtype=particle_dtype)
 
 structured["id"] = ids[:N]
+
+# c Mpc / h 
 structured["pos"][:, 0:3] = coordinates[:N].astype(np.float32)
+# km / s
 structured["pos"][:, 3:6] = velocities[:N].astype(np.float32)
+# solar masses
 structured["mass"] = masses[:N].astype(np.float32)
 
 assert ctypes.sizeof(Particle) == structured.dtype.itemsize == 40
@@ -125,27 +116,47 @@ lib.rockstar_analyze_fof_group.argtypes = [ctypes.POINTER(Particle), ctypes.c_in
                                            ctypes.c_double, ctypes.c_double]
 lib.rockstar_analyze_fof_group.restype = ctypes.c_int
 
-### Run the code
+### Additional arugments to run the rockstar code
+
+# Number of particles in the FoF halo
 
 num_particles = coordinates.shape[0]
 
-dark_matter_particle_mass = 5.9e7
+# Mass of dark matter particles in solar masses
 
-suffix = '_minp_4661'
+dark_matter_particle_mass = masses[0]
+
+# Output file names
+
+suffix = ''
 
 subhalo_fname = f"rockstar_subhalos_{cluster_id}" + suffix +".list"
 member_fname = f"rockstar_subhalo_members_{cluster_id}" + suffix +".list"
 
-min_particles_in_subhalo = 4661
-fof_fraction = 0.5
-
-### arugments for extra subhalo properties
-dm_mass_h = 4e7
-softening_in_Mpc_over_h = 1 * 10**-3  # This value is taken from Nelson et al. 2019
-a_scale_factor = 1
-
 subhalo_fname_b  = subhalo_fname.encode("utf-8")
 member_fname_b   = member_fname.encode("utf-8")
+
+# Minimum number of particles in a subhalo (mass resolution matched with bahamas)
+
+min_particles_in_subhalo = 4661
+
+# FoF fraction
+
+fof_fraction = 0.5
+
+# DM particle mass in comoving solar masses 
+
+dm_mass_h = masses[0] * 0.667
+
+# TNG softening length in Mpc / h (from Nelson et al. 2019)
+
+softening_in_Mpc_over_h = (1.48 * 10**-3) / 0.667
+
+# Scale factor at z = 0
+
+a_scale_factor = 1
+
+### Run the code
 
 status = lib.rockstar_analyze_fof_group(particles, num_particles, 1, 
                                         dark_matter_particle_mass, subhalo_fname_b, 

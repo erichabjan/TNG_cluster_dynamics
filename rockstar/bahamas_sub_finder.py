@@ -10,7 +10,7 @@ import ctypes
 from pathlib import Path
 
 import sys
-sys.path.append("/home/habjan.e/TNG/Codes")
+sys.path.append("/home/habjan.e/TNG/Codes/TNG_workshop")
 sys.path.append("/home/habjan.e/TNG/TNG_cluster_dynamics")
 
 import iapi_TNG as iapi
@@ -37,10 +37,14 @@ print('Processing Cluster ' + cluster_id + ' in ' + dm_folder)
 
 ### Import data
 
-data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/BAHAMAS_data/dataGiuliaCerini/" + dm_folder + "/GrNm_0" + cluster_id + ".npz")
+data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/" + dm_folder + "/GrNm_" + cluster_id + ".npz")
 
 coordinates = data['dm_pos'] - data['CoP']
+# c Mpc / h 
+coordinates = coordinates / (data['h'] * data['a'])
+# km / s
 velocities = data['dm_vel']
+# solar masses
 masses = data['dm_mass']
 ids = np.arange(masses.shape[0])
 
@@ -99,27 +103,47 @@ lib.rockstar_analyze_fof_group.argtypes = [ctypes.POINTER(Particle), ctypes.c_in
                                            ctypes.c_double, ctypes.c_double]
 lib.rockstar_analyze_fof_group.restype = ctypes.c_int
 
-### Run the code
+### Additional arugments to run the rockstar code
+
+# Number of particles in the FoF halo
 
 num_particles = coordinates.shape[0]
 
+# Mass of dark matter particles in solar masses
+
 dark_matter_particle_mass = masses[0]
+
+# Output file names
 
 suffix = ''
 
-subhalo_fname = f"bahamas_rockstar_subhalos_{dm_folder}_{cluster_id}" + suffix + ".list"
-member_fname = f"bahamas_rockstar_subhalo_members_{dm_folder}_{cluster_id}" + suffix + ".list"
-
-min_particles_in_subhalo = 50
-fof_fraction = 0.5
-
-### arugments for extra subhalo properties
-dm_mass_h = masses[0] * data['h']
-softening_in_Mpc_over_h = 4 / 10**3   # BAHAMAS is fixed at 4 kpc/h -> convert to Mpc/h
-a_scale_factor = data['a']
+subhalo_fname = f"{dm_folder}_rockstar_output/bahamas_rockstar_subhalos_{dm_folder}_{cluster_id}" + suffix + ".list"
+member_fname = f"{dm_folder}_rockstar_output/bahamas_rockstar_subhalo_members_{dm_folder}_{cluster_id}" + suffix + ".list"
 
 subhalo_fname_b  = subhalo_fname.encode("utf-8")
 member_fname_b   = member_fname.encode("utf-8")
+
+# Minimum number of particles in a subhalo (mass resolution matched with tng)
+
+min_particles_in_subhalo = 50
+
+# FoF fraction
+
+fof_fraction = 0.5
+
+# DM particle mass in comoving solar masses 
+
+dm_mass_h = masses[0] * data['h']
+
+# BAHAMAS softening length in Mpc / h (fixed at 4 kpc/h -> convert to Mpc/h)
+
+softening_in_Mpc_over_h = 4 / 10**3
+
+# Scale factor at z = 0.375
+
+a_scale_factor = data['a']
+
+### Run the code
 
 status = lib.rockstar_analyze_fof_group(particles, num_particles, 1, 
                                         dark_matter_particle_mass, subhalo_fname_b, 

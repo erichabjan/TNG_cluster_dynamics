@@ -4,7 +4,7 @@ import sys
 sys.path.append(dirc_path + 'TNG/Codes/DS+/MilaDS')
 import milaDS
 
-sys.path.append(dirc_path + 'TNG/Codes')
+sys.path.append(dirc_path + 'TNG/Codes/TNG_workshop')
 import iapi_TNG as iapi
 
 import numpy as np
@@ -147,9 +147,9 @@ def coord_cm_corr(cluster_ind, coordinates):
     h = simdata['hubble']
 
     pos_comoving = halo_center[cluster_ind, :] ## position in units c * kpc / h
-    cm_pos = pos_comoving / h
+    cm_pos = pos_comoving #/ h
 
-    sub_uncorrected_pos = coordinates / h
+    sub_uncorrected_pos = coordinates #/ h
     L = np.max(sub_uncorrected_pos)
     halfbox = L / 2
 
