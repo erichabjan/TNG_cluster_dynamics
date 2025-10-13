@@ -44,8 +44,6 @@ def get_cluster_props(cluster_ind):
 
     ### Make a cluster mass cut, now we have galaxy cluters
     quan_val = np.log10(5 * 10**14)
-    #bool_arr = np.array(Crit200 * 10**10 / simdata['hubble']) > 10**quan_val
-    #bool_ind = np.where(bool_arr)[0]
     Group_num = iapi.getSubhaloField('SubhaloGrNr', simulation=sim, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloGrNr', rewriteFile=0) # Import array that identifies the halo each subhalo belongs to 
     h = simdata['hubble']
     halo_mass = Crit200[cluster_ind] * 10**10 / h
@@ -56,7 +54,6 @@ def get_cluster_props(cluster_ind):
         display(Markdown(f"Cluster {cluster_ind} has a $M_{{200}}$ less than {np.round(quan_val)} $\\log(M_\\odot)$"))
 
     ### Pick a galaxy cluster
-    #cluster_TNG = bool_ind[cluster_ind]
     sub_ind = np.where(Group_num == cluster_ind)[0]
 
     ### Find the center of the galaxy cluster
@@ -90,43 +87,11 @@ def get_cluster_props(cluster_ind):
 
     subhalos = sub_ind[bright_ind]    ### This gives the index of each subhalo in the cluster
 
-    ### This for loop extracts the merger tree history information for each subhalo
+    ### Import the rockstar outputs for the FoF halo
 
-    subhalo_dict = {}
-
-    for sub in subhalos:
-
-        try: 
-
-            subTreeFile = gettree(99, sub)    ### This downloads the merger tree information 
-            subTree = h5py.File(subTreeFile,'r')    ### This reads the merger tree info 
-            subTree['SubhaloGrNr'][:]       ### Group number with cosmic time   
-            grnum_max = np.max(np.where(subTree['SubhaloGrNr'][:] == cluster_ind)[0])
-            grnum_max += 1
-            subhalo_dict[sub] = subTree['SubhaloGrNr'][:grnum_max]
-
-        except:
-
-            subhalo_dict[sub] = np.nan 
-            #print(f'{sub} does not have merger tree information')
-
-    ### This for loop groups the subhalos into subgroups/substructures
-
-    groups = {}
-
-    for ind, merger in subhalo_dict.items():
-
-        if np.any(np.isnan(merger)):
-            continue
-    
-        merger_tuple = tuple(merger)
-
-        halo_ind = np.where(subhalos == ind)[0][0]
-    
-        if merger_tuple in groups:
-            groups[merger_tuple].append(halo_ind)
-        else:
-            groups[merger_tuple] = [halo_ind]
+    rockstar_path = f'/projects/mccleary_group/habjan.e/TNG/Data/rockstar_output/tng_rockstar_output/matched_subhalo_members_{cluster_ind}.npy'
+    cl_sub_groups = np.load(rockstar_path)
+    groups = cl_sub_groups[bright_ind]
     
     return pos, vel, groups, subhalo_masses, h, halo_mass
 
@@ -205,13 +170,19 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 10, Ng_jump
     dsp_g = np.zeros(positions_2d.shape[0])
     tng_g = np.zeros(positions_2d.shape[0])
 
-    for group in in_groups:
+    groups = np.unique(in_groups)
+
+    for group in groups:
+
+        group_ind = np.where(group == in_groups)[0]
             
-        if len(in_groups[group]) > 1 and len(in_groups[group]) < int(np.sqrt(len(velocity))):
-            tng_g[in_groups[group]] = 1
+        if len(group_ind) > 1 and len(group_ind) < int(np.sqrt(len(velocity))):
+            ### 1 represents a subhalo that belongs to a substructure
+            tng_g[group_ind] = 1
     
         else:
-            tng_g[in_groups[group]] = 2
+            ### 2 represents a subhalo that does not belong to a substructure
+            tng_g[group_ind] = 2
 
     sub_grnu, sub_count = np.unique(dsp_results[1][:, 8], return_counts=True)
     sub_grnu_arr = dsp_results[1][:, 8]
@@ -238,31 +209,32 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 10, Ng_jump
 
     return dsp_results, C, P
 
-def bootstrap_compleness_purity(mc_in, pos_in, vel_in, in_groups, n_sims=1000, cluster_name = None):
+def bootstrap_complteeness_purity(mc_in, pos_in, vel_in, in_groups, n_sims=1000, cluster_name = None):
 
     ### TNG subgroups
 
     C_arr, P_arr = np.zeros(mc_in), np.zeros(mc_in)
     tng_g = np.zeros(pos_in.shape[0])
 
-    for group in in_groups:
+    groups = np.unique(in_groups)
+
+    for group in groups:
+
+        group_ind = np.where(group == in_groups)[0]
             
-        if len(in_groups[group]) > 1 and len(in_groups[group]) < 30:
-            tng_g[in_groups[group]] = 1
+        if len(group_ind) > 1 and len(group_ind) < int(np.sqrt(len(velocity))):
+            ### 1 represents a subhalo that belongs to a substructure
+            tng_g[group_ind] = 1
     
         else:
-            tng_g[in_groups[group]] = 2
+            ### 2 represents a subhalo that does not belong to a substructure
+            tng_g[group_ind] = 2
     
     ### Run DS+ j times
 
     for j in range(mc_in):
 
         dsp_g = np.zeros(pos_in.shape[0])
-        #proj_vector = np.random.uniform(low=-1, high=1, size=3)
-
-        #pos2d, v_los = project_3d_to_2d(pos_in, vel_in, viewing_direction=proj_vector)
-
-        #print(proj_vector), print(v_los)
 
         r_bootstrap = np.random.choice(a = vel_in)
         bool_bootstrap = vel_in != r_bootstrap
@@ -325,7 +297,7 @@ def Mass_Munari(groups, los_velcocity_arr, h = 0.6774, A_1D_sub = 1199, alpha_su
 
     return halo_mass, subhalo_mass
 
-def virial_mass(position_2d, los_velocity, groups):
+def virial_mass_velocity(position_2d, los_velocity, groups):
 
     G = 6.6743 * 10**-11
     pos_2d = position_2d * 3.086 * 10**19  # from kpc to m
@@ -354,7 +326,8 @@ def virial_mass(position_2d, los_velocity, groups):
     ### Substructure masses
 
     group_nums = np.unique(groups)
-    sub_masses = np.zeros(len(groups))
+    sub_masses = []
+    sub_vel_disp = []
 
     for k in range(len(group_nums)):
 
@@ -362,7 +335,7 @@ def virial_mass(position_2d, los_velocity, groups):
 
         if len(group_i_ind) > 1 and len(group_i_ind) < 30:
 
-            N = len(pos_2d[group_i_ind])
+            N = len(group_i_ind)
             r_ij = np.zeros((N, N))
 
             for i in range(N):
@@ -373,22 +346,27 @@ def virial_mass(position_2d, los_velocity, groups):
 
             i_upper, j_upper = np.triu_indices(N, k=1)
             sum_inverse_r = np.sum(1.0 / r_ij[i_upper, j_upper])
-
             R_harm = ( (1 / (N * (N - 1))) * sum_inverse_r)**(-1)
+
             mean_sub_velocity = np.mean(vel_los[group_i_ind])
             vel_los_disp = np.sqrt((1 / (len(group_i_ind) - 1)) * np.sum((vel_los[group_i_ind] - mean_sub_velocity)**2))
+            sub_vel_disp.append(vel_los_disp)
+
             M_sub = (3 * vel_los_disp**2 * R_harm) / G
-            sub_masses[group_i_ind] = M_sub
+            sub_masses.append(M_sub)
     
-    sub_masses /= 1.989 * 10**30 ## Convert from kg to solar masses
-    M_cluster /= 1.989 * 10**30 ## Convert from kg to solar masses
+    sub_masses = np.array(sub_masses) / (1.989 * 10**30) ## Convert from kg to solar masses
+    M_cluster = M_cluster / (1.989 * 10**30) ## Convert from kg to solar masses
+    sub_vel_disp = np.array(sub_vel_disp) * 10**-3
 
-    return M_cluster, sub_masses
+    return M_cluster, sub_masses, sub_vel_disp
 
-def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc):
+def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, bootstrap = False):
 
     ### Grab TNG data
     pos, vel, group, sub_masses_TNG, h, halo_mass_TNG = get_cluster_props(cluster_number)
+
+    sub_mass_list, sub_veldisp_list, dsp_result_list = [], [], []
 
     for i in range(proj_vector.shape[0]):
 
@@ -399,13 +377,17 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc):
         dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims, Plim_P = 50, Ng_jump=1, cluster_name = str(proj_vector[i]))
 
         ### Bootstrapping on purity and completeness
-        C_err, P_err = bootstrap_compleness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, n_sims=dsp_sims, cluster_name = str(proj_vector[i]));
+        if bootstrap:
+            C_err, P_err = bootstrap_completeness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, 
+                                                         n_sims=dsp_sims, cluster_name = str(proj_vector[i]));
+        else: 
+            C_err, P_err = np.nan, np.nan
 
         ### Find the DS+ Groups
         dsp_groups = dsp_group_finder(dsp_output = dsp_results)
 
         ### Find Virial Masses
-        halo_mass_Virial, sub_masses_Virial = virial_mass(position_2d = pos_2d, los_velocity = vel_los, groups = dsp_groups)
+        halo_mass_Virial, sub_masses_Virial, sub_veldisp_Virial = virial_mass_velocity(position_2d = pos_2d, los_velocity = vel_los, groups = dsp_groups)
 
         if i == 0:
 
@@ -437,7 +419,9 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc):
 
             df = pd.concat([df, df_new], ignore_index=True)
 
-    return dsp_results, sub_masses_Virial, df
+        sub_mass_list.append(sub_masses_Virial), sub_veldisp_list.append(sub_veldisp_Virial), dsp_result_list.append(dsp_results)
+
+    return dsp_result_list, sub_mass_list, sub_veldisp_list, df
 
 
 def compute_covariance_3d(positions):
