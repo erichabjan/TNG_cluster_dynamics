@@ -142,7 +142,7 @@ min_particles_in_subhalo = 4661
 
 # FoF fraction
 
-fof_fraction = 0.5
+fof_fraction = 0.7
 
 # DM particle mass in comoving solar masses 
 

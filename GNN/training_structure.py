@@ -13,55 +13,88 @@ from functools import partial
 import os, glob, pickle, random
 from typing import Iterator, Tuple
 import jraph
+import h5py
 
 
-def create_dataloader(data_dir: str, prefix: str, shuffle: bool = True,) -> Iterator[Tuple[jraph.GraphsTuple, jnp.ndarray, jnp.ndarray]]:
-    """
-    Yields batches saved by `graph_maker.py`.
+def data_loader(data_dir: str, file_in: str, batch_size: int, example: bool = False, shuffle: bool = True) -> Iterator[Tuple[jraph.GraphsTuple, jnp.ndarray, jnp.ndarray]]:
 
-    Each *.pkl file is already one fixed-size batch, so the iterator
-    simply loads one file at a time and returns:
-        • graph_batch  (jraph.GraphsTuple)
-        • targets      (float32 array,  shape: B*MAX_NODES x 3)
-        • node_mask    (float32 array,  length:  B*MAX_NODES)
+    file_path = data_dir + file_in
 
-    Parameters
-    ----------
-    data_dir : str
-        Directory that holds `train_batch_*.pkl` and `test_batch_*.pkl`.
-    prefix : str
-        Either `"train"` or `"test"`.
-    shuffle : bool, default True
-        When True, shuffle file order at every call
-        (good for training; set False for evaluation).
+    with h5py.File(file_path, 'r') as f:
 
-    Example
-    -------
-    >>> for graph, tgt, mask in create_dataloader("/path/to/graph_data", "train"):
-    ...     use_the_batch(graph, tgt, mask)
-    """
-    pattern = os.path.join(data_dir, f"{prefix}_batch_*.pkl")
-    files   = sorted(glob.glob(pattern))
-    if shuffle:
-        random.shuffle(files)
-    
-    #count = 0
+        sample_ids = list(f.keys())
+        n_samples = len(sample_ids)
 
-    for fname in files:
-        with open(fname, "rb") as fh:
-            saved = pickle.load(fh)
+        indices = np.arange(n_samples)
+        if shuffle:
+            np.random.shuffle(indices)
 
-        # everything is already numpy / JAX-friendly inside the pickle
-        yield (
-            saved["graph"],        # jraph.GraphsTuple
-            saved["targets"],      # jnp.ndarray
-            saved["node_mask"],    # jnp.ndarray
-        )
+        if example:
+            sample_key = sample_ids[indices[0]]
+            sample = f[sample_key]
+            
+            # Load the graph data
+            padded_nodes = jnp.array(sample['padded_nodes'][:])
+            node_mask = jnp.array(sample['node_mask'][:])
+            padded_targets = jnp.array(sample['padded_targets'][:])
+            n_nodes = sample.attrs['n_nodes']
+            n_edges = sample.attrs['n_edges']
+            
+            # Reconstruct the GraphsTuple
+            graph = jraph.GraphsTuple(
+                nodes=padded_nodes,
+                edges=None,
+                senders=jnp.zeros((0,), dtype=jnp.int32),
+                receivers=jnp.zeros((0,), dtype=jnp.int32),
+                n_node=jnp.array([n_nodes], dtype=jnp.int32),
+                n_edge=jnp.array([n_edges], dtype=jnp.int32),
+                globals=jnp.zeros((1, 128), dtype=jnp.float32)  # LATENT_SIZE=128
+            )
 
-        #count += 1
+            yield graph, padded_targets, node_mask
+            return
 
-        #if count == 10:
-         #   break
+        for i in range(0, n_samples, batch_size):
+            batch_indices = indices[i:i+batch_size]
+            actual_batch_size = len(batch_indices)
+            
+            # Collect batch data
+            batch_graphs = []
+            batch_targets = []
+            batch_masks = []
+            
+            for idx in batch_indices:
+                sample_key = sample_ids[idx]
+                sample = f[sample_key]
+                
+                # Load data for this sample
+                padded_nodes = jnp.array(sample['padded_nodes'][:])
+                node_mask = jnp.array(sample['node_mask'][:])
+                padded_targets = jnp.array(sample['padded_targets'][:])
+                n_nodes = sample.attrs['n_nodes']
+                n_edges = sample.attrs['n_edges']
+                
+                # Reconstruct GraphsTuple
+                graph = jraph.GraphsTuple(
+                    nodes=padded_nodes,
+                    edges=None,
+                    senders=jnp.zeros((0,), dtype=jnp.int32),
+                    receivers=jnp.zeros((0,), dtype=jnp.int32),
+                    n_node=jnp.array([n_nodes], dtype=jnp.int32),
+                    n_edge=jnp.array([n_edges], dtype=jnp.int32),
+                    globals=jnp.zeros((1, 128), dtype=jnp.float32)
+                )
+                
+                batch_graphs.append(graph)
+                batch_targets.append(padded_targets)
+                batch_masks.append(node_mask)
+            
+            # Batch the graphs
+            batched_graph = jraph.batch(batch_graphs)
+            batched_targets = jnp.concatenate(batch_targets, axis=0)
+            batched_masks = jnp.concatenate(batch_masks, axis=0)
+            
+            yield batched_graph, batched_targets, batched_masks
 
 
 
@@ -117,11 +150,12 @@ def eval_step(state, graph, target, mask):
 def train_model(
         data_dir,
         model, 
+        train_file,
+        test_file,
+        batch_size = 128,
         epochs=1000, 
         learning_rate=10**-4,
-        grad_clipping = 1,
-        train_prefix = 'train',
-        test_prefix = 'test'
+        grad_clipping = 1
 ):
     """Main training loop."""
     
@@ -130,7 +164,7 @@ def train_model(
     rng_key, init_key = jax.random.split(rng_key)
 
     example_graph, example_tgt, example_mask = next(
-        create_dataloader(data_dir, train_prefix, shuffle=False)
+        data_loader(data_dir = data_dir, file_in = train_file, batch_size = batch_size, example = True)
     )
     
     state = create_train_state(model, init_key, learning_rate, grad_clipping, example_graph)
@@ -145,14 +179,13 @@ def train_model(
         ### Training
         count = 0
         total_loss = 0
-        for graph, tgt, mask in create_dataloader(data_dir, train_prefix, shuffle=False):
+        for graph, tgt, mask in data_loader(data_dir = data_dir, file_in = train_file, batch_size = batch_size, shuffle = True):
 
             state = train_step(state, graph, tgt, mask, rng_key)
             current_loss = eval_step(state, graph, tgt, mask)
             
             count += 1
             total_loss += float(current_loss)
-
         
         ave_train_loss = float(total_loss / max(count, 1))
         train_losses.append(ave_train_loss)
@@ -161,7 +194,7 @@ def train_model(
         ### Testing
         count = 0
         total_loss = 0
-        for graph, tgt, mask in create_dataloader(data_dir, test_prefix, shuffle=False):
+        for graph, tgt, mask in data_loader(data_dir = data_dir, file_in = test_file, batch_size = batch_size, shuffle=False):
 
             loss_val = eval_step(state, graph, tgt, mask)
             
