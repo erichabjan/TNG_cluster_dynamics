@@ -99,6 +99,7 @@ def write_to_hdf5(rows, file_path):
         for row in rows:
             (id_val, sim, cluster_idx, proj_vec, halo_mass,
              x_ro_pos, y_ro_pos, z_ro_pos, x_ro_vel, y_ro_vel, z_ro_vel,
+             x_ro_mean, y_ro_mean, z_ro_mean, vx_ro_mean, vy_ro_mean, vz_ro_mean,
              x_ro_std, y_ro_std, z_ro_std, vx_ro_std, vy_ro_std, vz_ro_std,
              masses, padded_graph, node_mask, padded_targets) = row
             
@@ -121,6 +122,13 @@ def write_to_hdf5(rows, file_path):
             grp.create_dataset('z_velocity', data=z_ro_vel, compression='gzip')
             
             # Store standardization parameters
+            grp.attrs['x_position_mean'] = x_ro_mean
+            grp.attrs['y_position_mean'] = y_ro_mean
+            grp.attrs['z_position_mean'] = z_ro_mean
+            grp.attrs['x_velocity_mean'] = vx_ro_mean
+            grp.attrs['y_velocity_mean'] = vy_ro_mean
+            grp.attrs['z_velocity_mean'] = vz_ro_mean
+
             grp.attrs['x_position_std'] = x_ro_std
             grp.attrs['y_position_std'] = y_ro_std
             grp.attrs['z_position_std'] = z_ro_std
@@ -171,8 +179,11 @@ for cluster_idx in cluster_inds:
             x_ro_std, y_ro_std, z_ro_std = np.nanstd(ro_pos[:, 0]), np.nanstd(ro_pos[:, 1]), np.nanstd(ro_pos[:, 2])
             vx_ro_std, vy_ro_std, vz_ro_std = np.nanstd(ro_vel[:, 0]), np.nanstd(ro_vel[:, 1]), np.nanstd(ro_vel[:, 2])
 
-            x_ro_pos, y_ro_pos, z_ro_pos = ro_pos[:, 0] / x_ro_std, ro_pos[:, 1] / y_ro_std, ro_pos[:, 2] / z_ro_std
-            x_ro_vel, y_ro_vel, z_ro_vel = ro_vel[:, 0] / vx_ro_std, ro_vel[:, 1] / vy_ro_std, ro_vel[:, 2] / vz_ro_std
+            x_ro_mean, y_ro_mean, z_ro_mean = np.nanmean(ro_pos[:, 0]), np.nanmean(ro_pos[:, 1]), np.nanmean(ro_pos[:, 2])
+            vx_ro_mean, vy_ro_mean, vz_ro_mean = np.nanmean(ro_vel[:, 0]), np.nanmean(ro_vel[:, 1]), np.nanmean(ro_vel[:, 2])
+
+            x_ro_pos, y_ro_pos, z_ro_pos = (ro_pos[:, 0] - x_ro_mean) / x_ro_std, (ro_pos[:, 1] - y_ro_mean) / y_ro_std, (ro_pos[:, 2] - z_ro_mean) / z_ro_std
+            x_ro_vel, y_ro_vel, z_ro_vel = (ro_vel[:, 0] - vx_ro_mean) / vx_ro_std, (ro_vel[:, 1] - vy_ro_mean) / vy_ro_std, (ro_vel[:, 2] - vz_ro_mean) / vz_ro_std
 
             # (x, y, v_z)
             inputs  = np.stack((x_ro_pos, y_ro_pos, z_ro_vel),  axis=-1)
@@ -183,7 +194,8 @@ for cluster_idx in cluster_inds:
             padded_targets = pad_targets([targets], BATCH_SIZE, MAX_NODES)
 
             rows.append((id_val, str(sim), int(cluster_idx), proj_vec, halo_mass, 
-                         x_ro_pos, y_ro_pos, z_ro_pos, x_ro_vel, y_ro_vel, z_ro_vel, 
+                         x_ro_pos, y_ro_pos, z_ro_pos, x_ro_vel, y_ro_vel, z_ro_vel,
+                         x_ro_mean, y_ro_mean, z_ro_mean, vx_ro_mean, vy_ro_mean, vz_ro_mean,
                          x_ro_std, y_ro_std, z_ro_std, vx_ro_std, vy_ro_std, vz_ro_std,
                          masses,
                          padded_graph, node_mask, padded_targets))
