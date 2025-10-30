@@ -1,10 +1,10 @@
-This repository imports and analyzes data from both the [TNG simulation](https://www.tng-project.org/data/) and the [BAHAMAS simulation](https://arxiv.org/abs/1603.02702). The ROCKSTAR ([Robust Overdensity Calculation using K-Space Topologically Adaptive Refinement](https://iopscience.iop.org/article/10.1088/0004-637X/762/2/109)) halo finder is used on the TNG simulation particles to resolve cluster substructure from the full 6D phase space. The output of ROCKSTAR for each simulation looks like this: 
+This repository imports and analyzes data from both the [TNG simulation](https://www.tng-project.org/data/) and the [BAHAMAS simulation](https://arxiv.org/abs/1603.02702). The ROCKSTAR ([Robust Overdensity Calculation using K-Space Topologically Adaptive Refinement](https://iopscience.iop.org/article/10.1088/0004-637X/762/2/109)) halo finder is used on the TNG simulation particles to resolve cluster substructure from the full 6D phase space. The substructures found by my implemenation of the ROCKSTAR code for a Friends-of-Friends halo in each simulation for the inner 2 Mpc of the cluster is shown below: 
 
 <p align="center">
-  <img src="TNG_cluster_dynamics/figures/rockstar_bubbles.png" alt="rockstar_substrcuture" width="width:100%" />
+  <img src="figures/rockstar_bubbles.png" alt="rockstar_substrcuture" width="width:100%" />
 </p>
 
-The goal of this project is to develop methods that are able to identify cluster substructure from observed cluster-member galaxies observed dynamical quantities ($x$, $y$, $v_z$). The methods that are being developed/studied are:
+The cluster substructure found by ROCKSTAR serves as the "true substructure" that we will compare the observational substructure methods to. Thus, underscoring the goal of this project: to develop and study the effectiveness of methods that are able to identify cluster substructure from observed cluster-member galaxies observed dynamical quantities ($x$, $y$, $v_z$). The methods that are being developed/studied are:
 
 1. The [DS+](https://github.com/josegit88/MilaDS) algorithm to find substucture using two dimensional postions and line of sight velocity. We have also added a virial mass calculation of each substructure that is identified as well as the entire virial mass of the galaxy cluster. All funcitons used in this analysis are stored in the TNG_DA.py script with the script that actually runs this code in the DS+ folder. 
 
