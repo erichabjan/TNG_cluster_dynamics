@@ -46,7 +46,7 @@ coordinates = coordinates / (data['h'] * data['a'])
 velocities = data['dm_vel']
 # solar masses
 masses = data['dm_mass']
-ids = np.arange(masses.shape[0])
+ids = data['dm_ID']
 
 ### Load shared ROCKSTAR library
 
@@ -129,7 +129,7 @@ min_particles_in_subhalo = 50
 
 # FoF fraction
 
-fof_fraction = 0.5
+fof_fraction = 0.7
 
 # DM particle mass in comoving solar masses 
 

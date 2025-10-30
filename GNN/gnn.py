@@ -177,6 +177,10 @@ class GraphConvNet(nn.Module):
             embedder = jraph.GraphMapFeatures(embed_node_fn=embed_node_fn, embed_edge_fn=embed_edge_fn)
         
         graph = embedder(graph)
+
+        if graph.edges is None:
+            num_edges = graph.senders.shape[0]  # jraph uses senders/receivers for edge count
+            graph = graph._replace(edges=jnp.zeros((num_edges, self.latent_size), graph.nodes.dtype))
         
         # Ensure globals are properly shaped
         if graph.globals.ndim > 1:
@@ -193,38 +197,90 @@ class GraphConvNet(nn.Module):
         else:
             norm = lambda x: x  # Identity
         
+        if self.shared_weights:
+            node_mlp_shared = MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate,
+                                  name="update_node_fn_shared")
+            edge_mlp_shared = MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate,
+                                  name="update_edge_fn_shared")
+            if self.attention:
+                attn_mlp_shared = MLP([self.hidden_size, 1], dropout_rate=self.dropout_rate,
+                                       name="attention_logit_fn_shared")
+
+            def update_node_fn_shared(nodes, sent, recv, globals, deterministic=True):
+                inputs = (jnp.concatenate([nodes, recv, globals], axis=1)
+                  if recv is not None else jnp.concatenate([nodes, globals], axis=1))
+                return node_mlp_shared(inputs, deterministic=deterministic)
+
+            def update_edge_fn_shared(edges, senders, receivers, globals, deterministic=True):
+                if edges is not None:
+                    inputs = (jnp.concatenate([edges, senders - receivers, globals], axis=1)
+                      if self.relative_updates
+                      else jnp.concatenate([edges, senders, receivers, globals], axis=1))
+                else:
+                    inputs = (jnp.concatenate([senders - receivers, globals], axis=1)
+                      if self.relative_updates
+                      else jnp.concatenate([senders, receivers, globals], axis=1))
+                return edge_mlp_shared(inputs, deterministic=deterministic)
+
+            if self.attention:
+                def attention_logit_fn_shared(edges, s, r, g, deterministic=True):
+                    inputs = jnp.concatenate([edges, s, r, g], axis=-1)
+                    return attn_mlp_shared(inputs, deterministic=deterministic)
+
+
         # Message passing steps
         for step in range(self.message_passing_steps):
-            if step == 0 or not self.shared_weights:
-                suffix = "shared" if self.shared_weights else step
-                
+            attn_kwargs = {}
+            if self.attention:
+                if self.shared_weights:
+                    def attn_logit_fn(edges, s, r, g, deterministic=True):
+                        inputs = jnp.concatenate([edges, s, r, g], axis=-1)
+                        return attn_mlp_shared(inputs, deterministic=deterministic)
+                else:
+                    # per-step attention MLP
+                    attention_logit_fn_step = get_attention_logit_fn(
+                        self.hidden_size, dropout_rate=self.dropout_rate, name=f"attention_logit_fn_{step}")
+                        
+                    def attn_logit_fn(*args, deterministic=deterministic, fn=attention_logit_fn_step):
+                        return fn(*args, deterministic=deterministic)
+
+                def attn_reduce_fn(edges, weights):
+                    return edges * weights
+
+                attn_kwargs = dict(
+                    attention_logit_fn=lambda *args, f=attn_logit_fn: f(*args, deterministic=deterministic),
+                    attention_reduce_fn=attn_reduce_fn,)
+
+            if self.shared_weights:
+                graph_net = jraph.GraphNetwork(
+                    update_node_fn=lambda *args: update_node_fn_shared(*args, deterministic=deterministic),
+                    update_edge_fn=lambda *args: update_edge_fn_shared(*args, deterministic=deterministic),
+                    **attn_kwargs,)
+
+            else:
                 update_node_fn = get_node_mlp_updates(
                     mlp_feature_sizes, 
                     dropout_rate=self.dropout_rate,
-                    name=f"update_node_fn_{suffix}"
+                    name=f"update_node_fn_{step}"
                 )
                 update_edge_fn = get_edge_mlp_updates(
                     mlp_feature_sizes,
                     dropout_rate=self.dropout_rate,
                     relative_updates=self.relative_updates,
-                    name=f"update_edge_fn_{suffix}"
+                    name=f"update_edge_fn_{step}"
                 )
                 attention_logit_fn = (
                     get_attention_logit_fn(
                         self.hidden_size,
                         dropout_rate=self.dropout_rate,
-                        name=f"attention_logit_fn_{suffix}"
+                        name=f"attention_logit_fn_{step}"
                     ) if self.attention else None
                 )
                 
                 graph_net = jraph.GraphNetwork(
                     update_node_fn=lambda *args: update_node_fn(*args, deterministic=deterministic),
                     update_edge_fn=lambda *args: update_edge_fn(*args, deterministic=deterministic),
-                    attention_logit_fn=(
-                        lambda *args: attention_logit_fn(*args, deterministic=deterministic)
-                        if attention_logit_fn else None
-                    ),
-                    attention_reduce_fn=lambda edges, weights: edges * weights if self.attention else None,
+                    **attn_kwargs,
                 )
             
             # Apply graph network with skip connections

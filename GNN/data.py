@@ -19,7 +19,7 @@ train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_t
 BATCH_SIZE = 1               
 MAX_NODES  = 700
 LATENT_SIZE = 128
-dataset_size = 10**5
+dataset_size = 10**4
 
 if os.path.exists(train_path):
     os.remove(train_path)

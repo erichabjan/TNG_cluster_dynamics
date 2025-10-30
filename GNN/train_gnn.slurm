@@ -4,7 +4,7 @@
 #SBATCH --time=8:00:00
 #SBATCH --mem=24G
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=4
 
 # SBATCH -p reservation
