@@ -32,7 +32,7 @@ if __name__ == "__main__":
 
     # Define hyperparameters
     epochs = 25
-    batch_size = 128
+    batch_size = 32
     latent_size = 128
 
     total_steps = epochs * 10

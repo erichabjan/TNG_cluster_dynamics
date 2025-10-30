@@ -38,13 +38,19 @@ def preload_hdf5_to_memory(data_dir: str, file_in: str):
         node_shape = first_sample['padded_nodes'].shape
         target_shape = first_sample['padded_targets'].shape
         mask_shape = first_sample['node_mask'].shape
+        edge_shape   = first_sample['padded_edges'].shape
+        send_shape   = first_sample['senders'].shape
+        recv_shape   = first_sample['receivers'].shape 
         
-        print(f"Sample shapes - Nodes: {node_shape}, Targets: {target_shape}, Mask: {mask_shape}")
+        print(f"Sample shapes - Nodes: {node_shape}, Edges: {edge_shape}, Targets: {target_shape}, Mask: {mask_shape}")
         
         # Pre-allocate arrays
         all_nodes = np.zeros((n_samples, *node_shape), dtype=np.float32)
         all_targets = np.zeros((n_samples, *target_shape), dtype=np.float32)
         all_masks = np.zeros((n_samples, *mask_shape), dtype=np.float32)
+        all_edges = np.zeros((n_samples, *edge_shape),   dtype=np.float32)
+        all_senders = np.zeros((n_samples, *send_shape),   dtype=np.int32)
+        all_receivers = np.zeros((n_samples, *recv_shape),   dtype=np.int32)
         all_n_nodes = np.zeros(n_samples, dtype=np.int32)
         all_n_edges = np.zeros(n_samples, dtype=np.int32)
         
@@ -58,13 +64,16 @@ def preload_hdf5_to_memory(data_dir: str, file_in: str):
             all_nodes[i] = sample['padded_nodes'][:]
             all_targets[i] = sample['padded_targets'][:]
             all_masks[i] = sample['node_mask'][:]
+            all_edges[i]     = sample['padded_edges'][:]
+            all_senders[i]   = sample['senders'][:]
+            all_receivers[i] = sample['receivers'][:]
             all_n_nodes[i] = sample.attrs['n_nodes']
             all_n_edges[i] = sample.attrs['n_edges']
         
-        print()  # New line after loading
+        print()
     
     elapsed = time.time() - start
-    data_size_gb = (all_nodes.nbytes + all_targets.nbytes + all_masks.nbytes) / 1e9
+    data_size_gb = (all_nodes.nbytes + all_targets.nbytes + all_masks.nbytes + all_edges.nbytes + all_senders.nbytes + all_receivers.nbytes) / 1e9
     
     print(f"✓ Loaded {n_samples} samples in {elapsed:.2f}s ({data_size_gb:.2f} GB)")
     
@@ -72,6 +81,9 @@ def preload_hdf5_to_memory(data_dir: str, file_in: str):
         'nodes': all_nodes,
         'targets': all_targets,
         'masks': all_masks,
+        'edges': all_edges,
+        'senders': all_senders,
+        'receivers': all_receivers,
         'n_nodes': all_n_nodes,
         'n_edges': all_n_edges
     }
@@ -98,13 +110,13 @@ def data_loader(
         batch_graphs = []
         for idx in batch_indices:
             graph = jraph.GraphsTuple(
-                nodes=jnp.array(data_dict['nodes'][idx]),
-                edges=None,
-                senders=jnp.zeros((0,), dtype=jnp.int32),
-                receivers=jnp.zeros((0,), dtype=jnp.int32),
-                n_node=jnp.array([data_dict['n_nodes'][idx]], dtype=jnp.int32),
-                n_edge=jnp.array([data_dict['n_edges'][idx]], dtype=jnp.int32),
-                globals=jnp.zeros((1, latent_size), dtype=jnp.float32)
+                nodes = jnp.array(data_dict['nodes'][idx]),
+                edges = jnp.array(data_dict['edges'][idx]),
+                senders = jnp.array(data_dict['senders'][idx]),
+                receivers = jnp.array(data_dict['receivers'][idx]),
+                n_node = jnp.array([data_dict['n_nodes'][idx]], dtype=jnp.int32),
+                n_edge = jnp.array([data_dict['n_edges'][idx]], dtype=jnp.int32),
+                globals = jnp.zeros((1, latent_size), dtype=jnp.float32)
             )
             batch_graphs.append(graph)
         

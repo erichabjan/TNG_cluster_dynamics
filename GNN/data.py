@@ -18,6 +18,8 @@ test_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_te
 train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_train.h5'
 BATCH_SIZE = 1               
 MAX_NODES  = 700
+KNN_K      = 16
+MAX_EDGES  = MAX_NODES * KNN_K
 LATENT_SIZE = 128
 dataset_size = 10**4
 
@@ -44,29 +46,44 @@ id_val = 0
 ### Functions for graph making
 
 def make_graph(nodes_np: np.ndarray) -> jraph.GraphsTuple:
-    """Convert (N_i, 3) numpy array -> node-only GraphsTuple."""
+    """Convert (N, 3) numpy array -> GraphsTuple."""
 
-    nodes = jnp.asarray(nodes_np)
-    N_i   = nodes.shape[0]
-    empty = jnp.zeros((0,), dtype=jnp.int32)
+    nodes = jnp.asarray(nodes_np, dtype=jnp.float32)
+    N   = nodes.shape[0]
+
+    # Pair-wise calculation of x, y, v_z
+    diffs = nodes[:, None, :] - nodes[None, :, :]
+    d2 = jnp.sum(diffs ** 2, axis=-1)
+    d2 = d2 + jnp.eye(N) * 1e9
+    knn_idx = jnp.argsort(d2, axis=1)[:, :KNN_K]
+
+    senders = jnp.repeat(jnp.arange(N, dtype=jnp.int32), KNN_K)
+    receivers = knn_idx.reshape(-1).astype(jnp.int32)
+
+    src = nodes[senders]
+    dst = nodes[receivers]
+    rel = dst - src
+    dist = jnp.linalg.norm(rel, axis=-1, keepdims=True)
+    edges = jnp.concatenate([rel, dist], axis=-1)
+
     dummy_globals = jnp.zeros((1, LATENT_SIZE), dtype=jnp.float32)
 
     return jraph.GraphsTuple(
         nodes=nodes,             
-        edges=None,
-        senders=empty,
-        receivers=empty,
-        n_node=jnp.array([N_i], dtype=jnp.int32),
-        n_edge=jnp.array([0],  dtype=jnp.int32),
+        edges=edges,
+        senders=senders,
+        receivers=receivers,
+        n_node=jnp.array([N], dtype=jnp.int32),
+        n_edge=jnp.array([edges.shape[0]],  dtype=jnp.int32),
         globals=dummy_globals
     )
 
 ### Function to pad a single graph
-def pad_single(g, max_nodes):
+def pad_single(g, max_nodes, max_edges):
 
     return jraph.pad_with_graphs(g,
                                  n_node=max_nodes,
-                                 n_edge=0)
+                                 n_edge=max_edges)
 
 def explicit_mask(g, max_nodes):
     n = g.nodes.shape[0]
@@ -75,9 +92,9 @@ def explicit_mask(g, max_nodes):
 
 
 ### This function pads the graph data so that they have the same input size
-def pad_batch(graphs, max_nodes):
+def pad_batch(graphs, max_nodes, max_edges):
 
-    padded_list = [pad_single(g, max_nodes) for g in graphs]
+    padded_list = [pad_single(g, max_nodes, max_edges) for g in graphs]
     mask_list   = [explicit_mask(g, max_nodes) for g in graphs]
 
     return jraph.batch(padded_list), jnp.concatenate(mask_list) 
@@ -144,6 +161,10 @@ def write_to_hdf5(rows, file_path):
             grp.create_dataset('node_mask', data=np.array(node_mask), compression='gzip')
             grp.create_dataset('padded_targets', data=np.array(padded_targets), compression='gzip')
 
+            grp.create_dataset('padded_edges', data=np.array(padded_graph.edges),     compression='gzip')
+            grp.create_dataset('senders',      data=np.array(padded_graph.senders),   compression='gzip')
+            grp.create_dataset('receivers',    data=np.array(padded_graph.receivers), compression='gzip')
+
             # Store graph metadata
             grp.attrs['n_nodes'] = int(padded_graph.n_node[0])
             grp.attrs['n_edges'] = int(padded_graph.n_edge[0])
@@ -190,7 +211,8 @@ for cluster_idx in cluster_inds:
             # (z, v_x, v_y)
             targets = np.stack((z_ro_pos, x_ro_vel, y_ro_vel),  axis=-1)
 
-            padded_graph, node_mask = pad_batch([make_graph(inputs)], MAX_NODES)
+            g = make_graph(inputs)
+            padded_graph, node_mask = pad_batch([g], MAX_NODES, MAX_EDGES)
             padded_targets = pad_targets([targets], BATCH_SIZE, MAX_NODES)
 
             rows.append((id_val, str(sim), int(cluster_idx), proj_vec, halo_mass, 
