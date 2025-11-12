@@ -39,7 +39,13 @@ print('Processing Cluster ' + cluster_id + ' in ' + dm_folder)
 
 data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/" + dm_folder + "/GrNm_" + cluster_id + ".npz")
 
-coordinates = data['dm_pos'] - data['CoP']
+### acount for periodic bounary conditions
+L = np.max(data['dm_pos'])
+halfbox = L / 2
+difpos = np.subtract(data['dm_pos'], data['CoP'])
+centered_pos = np.where( abs(difpos) > halfbox, abs(difpos)- L , difpos)
+
+coordinates = centered_pos
 # c Mpc / h 
 coordinates = coordinates / (data['h'] * data['a'])
 # km / s
