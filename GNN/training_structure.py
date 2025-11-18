@@ -155,12 +155,126 @@ def mse_loss(params, graph, target, mask, apply_fn, training, rng=None):
 
     return mse_masked
 
+@staticmethod
+def boltzmann_entropy_loss(params, graph, target, mask, apply_fn, training, rng=None, G=1.0, M=1.0, m=1.0, a=1.0, beta=1.0, h=1.0, include_partition_const=False):
+
+    deterministic = not training
+    kwargs = dict(deterministic=deterministic)
+    if not deterministic:
+        kwargs["rngs"] = {"dropout": rng}
+
+    preds_graph = apply_fn({'params': params}, graph, **kwargs)
+    preds = preds_graph.nodes
+    inputs = graph.nodes
+
+    x  = inputs[:, 0]
+    y  = inputs[:, 1]
+    vz = inputs[:, 2]
+
+    z  = preds[:, 0]
+    vx = preds[:, 1]
+    vy = preds[:, 2]
+
+    r = jnp.sqrt(x**2 + y**2 + z**2)
+    v2 = vx**2 + vy**2 + vz**2
+
+    kinetic   = 0.5 * m * v2
+    potential = G * M * m * (r / (a**2) - 2.0 / a)
+    H = kinetic + potential 
+
+    # Drop the constant; gradients are identical and this is numerically cleaner.
+    if include_partition_const:
+
+        log_Qi = (
+            jnp.log(2.0 * jnp.pi**2 * a**2)
+            - jnp.log(G * h**3 * beta * M * m)
+            + 1.5 * jnp.log(2.0 * jnp.pi * m / beta)
+            + beta * G * M * m / a
+        )
+
+        neg_logP = beta * H + log_Qi
+    else:
+        neg_logP = beta * H
+
+    mask = mask.astype(H.dtype)
+    mask_sum = mask.sum()
+    neg_logP_masked = (neg_logP * mask).sum() / mask_sum
+
+    return neg_logP_masked
+
+@staticmethod
+def energy_regularizer(preds,
+                       inputs,
+                       mask,
+                       *,
+                       G=1.0, M=1.0, m=1.0, a=1.0, beta=1.0):
+
+    x  = inputs[:, 0]
+    y  = inputs[:, 1]
+    vz = inputs[:, 2]
+
+    z  = preds[:, 0]
+    vx = preds[:, 1]
+    vy = preds[:, 2]
+
+    r  = jnp.sqrt(x**2 + y**2 + z**2)
+    v2 = vx**2 + vy**2 + vz**2
+
+    kinetic   = 0.5 * m * v2
+    potential = G * M * m * (r / (a**2) - 2.0 / a)
+    H = kinetic + potential
+
+    mask = mask.astype(H.dtype)
+    H_mean = (H * mask).sum() / (mask.sum() + 1e-12)
+
+    return beta * H_mean 
+
+@staticmethod
+def hybrid_mse_energy_loss(params,
+                           graph,
+                           target,
+                           mask,
+                           apply_fn,
+                           training,
+                           rng=None,
+                           *,
+                           lambda_phys=1.0,      # weight of the energy term
+                           G=1.0, M=1.0, m=1.0, a=1.0, beta=1.0):
+    """
+    L = MSE + lambda_phys * (beta * <H>)
+    """
+
+    deterministic = not training
+    kwargs = dict(deterministic=deterministic)
+    if not deterministic:
+        kwargs["rngs"] = {"dropout": rng}
+
+    # One forward pass
+    preds_graph = apply_fn({'params': params}, graph, **kwargs)
+    preds = preds_graph.nodes            # (N, 3)
+    inputs = graph.nodes                 # (N, 3)
+
+    # --- MSE term ---
+    mse_per_node = ((preds - target) ** 2).sum(-1)    # (N,)
+    mask_f = mask.astype(mse_per_node.dtype)
+    mse = (mse_per_node * mask_f).sum() / (mask_f.sum() + 1e-12)
+
+    # --- Energy regularizer ---
+    phys_term = energy_regularizer(
+        preds, inputs, mask_f,
+        G=G, M=M, m=m, a=a, beta=beta
+    )
+
+    loss = mse + lambda_phys * phys_term
+    return loss
+
 @jax.jit
 def train_step(state, graph, target, mask, rng_key):
     """Single training step."""
     
     def loss_fn(params):
-        return mse_loss(params, graph, target, mask, state.apply_fn, training=True, rng=rng_key)
+        #return mse_loss(params, graph, target, mask, state.apply_fn, training=True, rng=rng_key)
+        return hybrid_mse_energy_loss(params, graph, target, mask, state.apply_fn, training=True, rng=rng_key) 
 
     grads = jax.grad(loss_fn)(state.params)
 
@@ -169,7 +283,8 @@ def train_step(state, graph, target, mask, rng_key):
 @jax.jit
 def eval_step(state, graph, target, mask):
 
-    loss = mse_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
+    #loss = mse_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
+    loss = hybrid_mse_energy_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
 
     return loss
 

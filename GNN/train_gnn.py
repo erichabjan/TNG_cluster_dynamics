@@ -17,7 +17,7 @@ from training_structure import train_model, data_loader, create_train_state, tra
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_testing'
+suffix = '_hybrid'
 
 ### Import data and create data loaders
 data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
