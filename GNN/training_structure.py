@@ -289,7 +289,8 @@ def eval_step(state, graph, target, mask):
     return loss
 
 def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarray], model, batch_size = 128,
-                epochs=1000, learning_rate=10**-4, grad_clipping = 1, latent_size = 128):
+                epochs=1000, learning_rate=10**-4, grad_clipping = 1, latent_size = 128, 
+                early_stopping=False, patience=5):
 
     rng_key = jax.random.PRNGKey(42)
     rng_key, init_key = jax.random.split(rng_key)
@@ -304,6 +305,11 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
     
     train_losses = []
     test_losses = []
+
+    ### Early stopping initial quantities
+    best_loss = float('inf')
+    best_state = None
+    epochs_without_improvement = 0
 
     for step in range(epochs):
 
@@ -338,6 +344,21 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
         ave_test_loss = float(total_loss / max(count, 1))
         test_losses.append(ave_test_loss)
         print(f"Step {step} | Test Loss: {test_losses[step]}")
+
+        # Early stopping logic
+        if early_stopping:
+            if ave_test_loss < best_loss:
+                best_loss = ave_test_loss
+                best_state = state
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+
+            if epochs_without_improvement >= patience:
+                print(f"Early stopping triggered at epoch {epoch+1}")
+                if best_state is not None:
+                    state = best_state
+                break
 
     return state, model, np.array(train_losses), np.array(test_losses)
 
