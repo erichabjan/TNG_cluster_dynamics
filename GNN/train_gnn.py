@@ -17,7 +17,7 @@ from training_structure import train_model, data_loader, create_train_state, tra
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_long'
+suffix = '_testing'
 
 ### Import data and create data loaders
 data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
@@ -31,19 +31,19 @@ if __name__ == "__main__":
     test_data = preload_hdf5_to_memory(data_path, test_file)
 
     # Define hyperparameters
-    epochs = 225
+    epochs = 15
     batch_size = 32
     latent_size = 128
 
     early_stopping = True
-    patience = 200
+    patience = 10
 
     total_steps = epochs * 10
     warm_up = int(0.05 * total_steps)
     decay = int(total_steps - warm_up)
 
-    learning_rate = optax.warmup_cosine_decay_schedule(init_value = 0.0, peak_value = 3e-4, warmup_steps = warm_up, decay_steps = decay, end_value = 3e-5)
-    #learning_rate = 10**-2
+    #learning_rate = optax.warmup_cosine_decay_schedule(init_value = 0.0, peak_value = 3e-4, warmup_steps = warm_up, decay_steps = decay, end_value = 3e-5)
+    learning_rate = 10**-4
     gradient_clipping = 1
  
     # Create and train the model
@@ -58,7 +58,7 @@ if __name__ == "__main__":
                          shared_weights = False,
                          relative_updates = False,
                          output_dim = 3,
-                         dropout_rate = 0.1)
+                         dropout_rate = 0.0)
 
     trained_state, model, train_losses, test_losses = train_model(
         train_data=train_data,

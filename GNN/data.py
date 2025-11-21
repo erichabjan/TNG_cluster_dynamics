@@ -18,7 +18,7 @@ test_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_te
 train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_train.h5'
 BATCH_SIZE = 1               
 MAX_NODES  = 700
-KNN_K      = 16
+KNN_K      = 2
 MAX_EDGES  = MAX_NODES * KNN_K
 LATENT_SIZE = 128
 dataset_size = 10**4
@@ -166,8 +166,8 @@ def write_to_hdf5(rows, file_path):
             grp.create_dataset('receivers',    data=np.array(padded_graph.receivers), compression='gzip')
 
             # Store graph metadata
-            grp.attrs['n_nodes'] = int(padded_graph.n_node[0])
-            grp.attrs['n_edges'] = int(padded_graph.n_edge[0])
+            grp.attrs['n_nodes'] = int(padded_graph.nodes.shape[0]) #int(padded_graph.n_node[0])
+            grp.attrs['n_edges'] = int(padded_graph.edges.shape[0]) #int(padded_graph.n_edge[0])
 
 for cluster_idx in cluster_inds:
 

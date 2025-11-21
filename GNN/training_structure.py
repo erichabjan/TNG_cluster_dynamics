@@ -15,6 +15,8 @@ import time
 import os
 import h5py
 
+from jax.tree_util import tree_leaves
+
 def preload_hdf5_to_memory(data_dir: str, file_in: str):
     """
     Load entire HDF5 file into memory as numpy arrays.
@@ -135,27 +137,42 @@ def create_train_state(model, rng_key, learning_rate, grad_clipping, example_gra
     
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
 
-@staticmethod
 def mse_loss(params, graph, target, mask, apply_fn, training, rng=None):
-    """
-    Calculate weighted mean squared error loss.
-    """
-
     deterministic = not training
     kwargs = dict(deterministic=deterministic)
-
     if not deterministic:
         kwargs["rngs"] = {"dropout": rng}
-    
+
     preds_graph = apply_fn({'params': params}, graph, **kwargs)
-    preds = preds_graph.nodes
-    mse = ((preds - target) ** 2).sum(-1)
+    preds = preds_graph.nodes          # (N, 3)
 
-    mse_masked = (mse * mask).sum() / mask.sum()
+    mask_f = mask.astype(preds.dtype)  # (N,)
+    count  = mask_f.sum() + 1e-12      # scalar
 
-    return mse_masked
+    # --- per-dimension masked mean/std (dims: z, vx, vy) ---
+    # shape (3,)
+    mean_pred = (preds  * mask_f[:, None]).sum(axis=0) / count
+    mean_tgt  = (target * mask_f[:, None]).sum(axis=0) / count
 
-@staticmethod
+    var_pred = ((preds  - mean_pred)**2  * mask_f[:, None]).sum(axis=0) / count
+    var_tgt  = ((target - mean_tgt)**2  * mask_f[:, None]).sum(axis=0) / count
+
+    jax.debug.print(
+        "pred mean/std (z,vx,vy): {mp} {sp}\n"
+        "tgt  mean/std (z,vx,vy): {mt} {st}\n"
+        "mask count: {mc}",
+        mp=mean_pred,
+        sp=jnp.sqrt(var_pred),
+        mt=mean_tgt,
+        st=jnp.sqrt(var_tgt),
+        mc=count,
+    )
+
+    # --- usual masked MSE ---
+    mse_per_node = ((preds - target) ** 2).sum(-1)    # (N,)
+    mse = (mse_per_node * mask_f).sum() / count
+    return mse
+
 def boltzmann_entropy_loss(params, graph, target, mask, apply_fn, training, rng=None, G=1.0, M=1.0, m=1.0, a=1.0, beta=1.0, h=1.0, include_partition_const=False):
 
     deterministic = not training
@@ -202,7 +219,6 @@ def boltzmann_entropy_loss(params, graph, target, mask, apply_fn, training, rng=
 
     return neg_logP_masked
 
-@staticmethod
 def energy_regularizer(preds,
                        inputs,
                        mask,
@@ -229,7 +245,6 @@ def energy_regularizer(preds,
 
     return beta * H_mean 
 
-@staticmethod
 def hybrid_mse_energy_loss(params,
                            graph,
                            target,
@@ -268,23 +283,30 @@ def hybrid_mse_energy_loss(params,
     loss = mse + lambda_phys * phys_term
     return loss
 
+def tree_l2_norm(tree):
+    return jnp.sqrt(sum([jnp.vdot(x, x) for x in tree_leaves(tree)]))
+
 @jax.jit
 def train_step(state, graph, target, mask, rng_key):
-    """Single training step."""
-    
     def loss_fn(params):
-        #return mse_loss(params, graph, target, mask, state.apply_fn, training=True, rng=rng_key)
-        return hybrid_mse_energy_loss(params, graph, target, mask, state.apply_fn, training=True, rng=rng_key) 
+        return mse_loss(params, graph, target, mask,
+                        state.apply_fn, training=True, rng=rng_key)
 
     grads = jax.grad(loss_fn)(state.params)
 
-    return state.apply_gradients(grads=grads) 
+    jax.debug.print(
+        "grad norm: {g}, param norm: {p}",
+        g=tree_l2_norm(grads),
+        p=tree_l2_norm(state.params),
+    )
+
+    return state.apply_gradients(grads=grads)
 
 @jax.jit
 def eval_step(state, graph, target, mask):
 
-    #loss = mse_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
-    loss = hybrid_mse_energy_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
+    loss = mse_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
+    #loss = hybrid_mse_energy_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
 
     return loss
 
@@ -313,13 +335,12 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
 
     for step in range(epochs):
 
-        rng_key, batch_key = jax.random.split(rng_key)
-
         count = 0
         total_loss = 0
 
         for graph, tgt, mask in data_loader(train_data, batch_size, shuffle=True, latent_size=latent_size):
 
+            rng_key, batch_key = jax.random.split(rng_key)
             state = train_step(state, graph, tgt, mask, rng_key)
 
             current_loss = eval_step(state, graph, tgt, mask)
@@ -355,14 +376,13 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
                 epochs_without_improvement += 1
 
             if epochs_without_improvement >= patience:
-                print(f"Early stopping triggered at epoch {epoch+1}")
+                print(f"Early stopping triggered at epoch {step+1}")
                 if best_state is not None:
                     state = best_state
                 break
 
     return state, model, np.array(train_losses), np.array(test_losses)
 
-@staticmethod
 def predict(model, params, data_dir, data_prefix = 'test'):
     """
     Make predictions with a trained model.
