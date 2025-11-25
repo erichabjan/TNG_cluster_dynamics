@@ -65,7 +65,8 @@ def get_cluster_props(cluster_ind):
     sub_vel = iapi.getSubhaloField('SubhaloVel', simulation=sim, snapshot=99, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloVel', rewriteFile=0)
     sub_photo = iapi.getSubhaloField('SubhaloStellarPhotometrics', snapshot=99, simulation=sim, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloStellarPhotometrics', rewriteFile=0)
     sub_masses = iapi.getSubhaloField('SubhaloMass', snapshot=99, simulation=sim, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloMass', rewriteFile=0)
-    sub_masses = sub_masses * 10**10 / h
+    SubhaloMassType = iapi.getSubhaloField('SubhaloMassType', snapshot=99, simulation=sim, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloMassType', rewriteFile=0)
+    sub_masses, SubhaloMassType = sub_masses * 10**10 / h, SubhaloMassType*10**10 / h
 
     #L is length of box, halfbox is L/2
     sub_uncorrected_pos = sub_comoving / h
@@ -78,12 +79,12 @@ def get_cluster_props(cluster_ind):
     distsq = np.sum(np.square(difpos),axis=1)
 
     ### Center the position array relative to the cluster, make arrays with cluster subhalo parameters
-    cl_pos, cl_vel, cl_photo, cl_masses = difpos[sub_ind], sub_vel[sub_ind], sub_photo[sub_ind], sub_masses[sub_ind]
+    cl_pos, cl_vel, cl_photo, cl_masses, cl_SubhaloMassType = difpos[sub_ind], sub_vel[sub_ind], sub_photo[sub_ind], sub_masses[sub_ind],  SubhaloMassType[sub_ind, :]
 
     ### Make a magnitude cut so that subhalos are actually galaxies, not DM halos 
     mag_cut = -18
     bright_ind = cl_photo[:, 4] < mag_cut
-    pos, vel, photo, subhalo_masses = cl_pos[bright_ind], cl_vel[bright_ind], cl_photo[bright_ind], cl_masses[bright_ind]
+    pos, vel, photo, subhalo_masses, subhalo_type = cl_pos[bright_ind], cl_vel[bright_ind], cl_photo[bright_ind], cl_masses[bright_ind], cl_SubhaloMassType[bright_ind, :]
 
     subhalos = sub_ind[bright_ind]    ### This gives the index of each subhalo in the cluster
 
@@ -93,7 +94,7 @@ def get_cluster_props(cluster_ind):
     cl_sub_groups = np.load(rockstar_path)
     groups = cl_sub_groups[bright_ind]
     
-    return pos, vel, groups, subhalo_masses, h, halo_mass
+    return pos, vel, groups, subhalo_masses, subhalo_type, h, halo_mass
 
 def coord_cm_corr(cluster_ind, coordinates):
 

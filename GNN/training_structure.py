@@ -157,21 +157,26 @@ def mse_loss(params, graph, target, mask, apply_fn, training, rng=None):
     var_pred = ((preds  - mean_pred)**2  * mask_f[:, None]).sum(axis=0) / count
     var_tgt  = ((target - mean_tgt)**2  * mask_f[:, None]).sum(axis=0) / count
 
+    std_loss = jnp.mean((var_pred - var_tgt) ** 2)
+
     jax.debug.print(
         "pred mean/std (z,vx,vy): {mp} {sp}\n"
         "tgt  mean/std (z,vx,vy): {mt} {st}\n"
-        "mask count: {mc}",
+        "std_loss: {sl}, mask count: {mc}",
         mp=mean_pred,
         sp=jnp.sqrt(var_pred),
         mt=mean_tgt,
         st=jnp.sqrt(var_tgt),
+        sl=std_loss,
         mc=count,
     )
 
     # --- usual masked MSE ---
     mse_per_node = ((preds - target) ** 2).sum(-1)    # (N,)
     mse = (mse_per_node * mask_f).sum() / count
-    return mse
+    loss = mse + 0.5 * std_loss
+
+    return loss
 
 def boltzmann_entropy_loss(params, graph, target, mask, apply_fn, training, rng=None, G=1.0, M=1.0, m=1.0, a=1.0, beta=1.0, h=1.0, include_partition_const=False):
 

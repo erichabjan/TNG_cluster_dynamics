@@ -118,7 +118,8 @@ def write_to_hdf5(rows, file_path):
              x_ro_pos, y_ro_pos, z_ro_pos, x_ro_vel, y_ro_vel, z_ro_vel,
              x_ro_mean, y_ro_mean, z_ro_mean, vx_ro_mean, vy_ro_mean, vz_ro_mean,
              x_ro_std, y_ro_std, z_ro_std, vx_ro_std, vy_ro_std, vz_ro_std,
-             masses, padded_graph, node_mask, padded_targets) = row
+             m_ro_mass, m_ro_mean, m_ro_std,
+             padded_graph, node_mask, padded_targets) = row
             
             # Create a group for this sample
             grp = f.create_group(f'{id_val:06d}')
@@ -152,9 +153,10 @@ def write_to_hdf5(rows, file_path):
             grp.attrs['x_velocity_std'] = vx_ro_std
             grp.attrs['y_velocity_std'] = vy_ro_std
             grp.attrs['z_velocity_std'] = vz_ro_std
-            
-            # Store subhalo masses
-            grp.create_dataset('subhalo_masses', data=masses, compression='gzip')
+
+            grp.attrs['stellar_mass'] = m_ro_mass
+            grp.attrs['stellar_mass_mass'] = m_ro_mean
+            grp.attrs['stellar_mass_std'] = m_ro_std
             
             # Store padded graph data (convert JAX arrays to numpy)
             grp.create_dataset('padded_nodes', data=np.array(padded_graph.nodes), compression='gzip')
@@ -181,13 +183,15 @@ for cluster_idx in cluster_inds:
 
         data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/" + sim + "/GrNm_" + cluster_idx + ".npz")
 
-        coordinates = data['sub_pos'] - data['CoP']
+        bright_bool = data['sub_massTotal'][:, 4] != 0
+
+        coordinates = data['sub_pos'][bright_bool,:] - data['CoP']
         # c Mpc / h 
         pos = coordinates / (data['h'] * data['a'])
         # km / s
-        vel = data['sub_vel']
+        vel = data['sub_vel'][bright_bool,:]
         # solar masses
-        masses = np.nansum(data['sub_massTotal'], axis = 1)
+        stellar_masses = np.log10(data['sub_massTotal'][bright_bool, 4])
 
         halo_mass = data['Mfof']
 
@@ -206,8 +210,11 @@ for cluster_idx in cluster_inds:
             x_ro_pos, y_ro_pos, z_ro_pos = (ro_pos[:, 0] - x_ro_mean) / x_ro_std, (ro_pos[:, 1] - y_ro_mean) / y_ro_std, (ro_pos[:, 2] - z_ro_mean) / z_ro_std
             x_ro_vel, y_ro_vel, z_ro_vel = (ro_vel[:, 0] - vx_ro_mean) / vx_ro_std, (ro_vel[:, 1] - vy_ro_mean) / vy_ro_std, (ro_vel[:, 2] - vz_ro_mean) / vz_ro_std
 
-            # (x, y, v_z)
-            inputs  = np.stack((x_ro_pos, y_ro_pos, z_ro_vel),  axis=-1)
+            m_ro_std, m_ro_mean = np.nanstd(stellar_masses), np.nanmean(stellar_masses)
+            m_ro_mass = (stellar_masses - m_ro_mean) / m_ro_std
+
+            # (x, y, v_z, mass)
+            inputs  = np.stack((x_ro_pos, y_ro_pos, z_ro_vel, m_ro_mass),  axis=-1)
             # (z, v_x, v_y)
             targets = np.stack((z_ro_pos, x_ro_vel, y_ro_vel),  axis=-1)
 
@@ -219,7 +226,7 @@ for cluster_idx in cluster_inds:
                          x_ro_pos, y_ro_pos, z_ro_pos, x_ro_vel, y_ro_vel, z_ro_vel,
                          x_ro_mean, y_ro_mean, z_ro_mean, vx_ro_mean, vy_ro_mean, vz_ro_mean,
                          x_ro_std, y_ro_std, z_ro_std, vx_ro_std, vy_ro_std, vz_ro_std,
-                         masses,
+                         m_ro_mass, m_ro_mean, m_ro_std,
                          padded_graph, node_mask, padded_targets))
 
             id_val += 1
