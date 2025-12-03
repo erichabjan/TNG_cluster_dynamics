@@ -17,12 +17,14 @@ from training_structure import train_model, data_loader, create_train_state, tra
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_long'
+suffix = '_testing'
 
 ### Import data and create data loaders
 data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
 train_file = 'GNN_data_train.h5'
 test_file = 'GNN_data_test.h5'
+#train_file = 'GNN_data_train_one.h5'
+#test_file = 'GNN_data_train_one.h5'
 
 ### Train model
 if __name__ == "__main__":
@@ -31,7 +33,7 @@ if __name__ == "__main__":
     test_data = preload_hdf5_to_memory(data_path, test_file)
 
     # Define hyperparameters
-    epochs = 1000
+    epochs = 500
     batch_size = 128
     latent_size = 128
 
@@ -43,17 +45,17 @@ if __name__ == "__main__":
     decay = int(total_steps - warm_up)
 
     #learning_rate = optax.warmup_cosine_decay_schedule(init_value = 0.0, peak_value = 3e-4, warmup_steps = warm_up, decay_steps = decay, end_value = 3e-5)
-    learning_rate = 10**-4
+    learning_rate = 3*10**-4
     gradient_clipping = 1
  
     # Create and train the model
     model = GraphConvNet(latent_size = latent_size, 
                          hidden_size = 256, 
                          num_mlp_layers = 3, 
-                         message_passing_steps = 5, 
+                         message_passing_steps = 1, 
                          skip_connections = True,
                          edge_skip_connections = True,
-                         norm = "pair", 
+                         norm = "none", 
                          attention = True,
                          shared_weights = False,
                          relative_updates = False,

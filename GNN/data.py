@@ -16,6 +16,7 @@ import jax.numpy as jnp
 ### Set data directory, batch size, and maximum number of nodes (galaxies)
 test_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_test.h5'
 train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_train.h5'
+
 BATCH_SIZE = 1               
 MAX_NODES  = 700
 KNN_K      = 2
@@ -185,7 +186,12 @@ for cluster_idx in cluster_inds:
 
         bright_bool = data['sub_massTotal'][:, 4] != 0
 
-        coordinates = data['sub_pos'][bright_bool,:] - data['CoP']
+        # Positons + periodic boundary conditions
+        L = np.max(data['sub_pos'][bright_bool,:])
+        halfbox = L / 2
+        difpos = np.subtract(data['sub_pos'][bright_bool,:], data['CoP'])
+        coordinates = np.where( abs(difpos) > halfbox, abs(difpos)- L , difpos)
+
         # c Mpc / h 
         pos = coordinates / (data['h'] * data['a'])
         # km / s
@@ -201,16 +207,16 @@ for cluster_idx in cluster_inds:
             ro_pos, ro_vel = TNG_DA.rotate_to_viewing_frame(pos, vel, proj_vec)
 
             # Standardize data (data is also unitless)
-            x_ro_std, y_ro_std, z_ro_std = np.nanstd(ro_pos[:, 0]), np.nanstd(ro_pos[:, 1]), np.nanstd(ro_pos[:, 2])
-            vx_ro_std, vy_ro_std, vz_ro_std = np.nanstd(ro_vel[:, 0]), np.nanstd(ro_vel[:, 1]), np.nanstd(ro_vel[:, 2])
+            x_ro_std, y_ro_std, z_ro_std = np.nanstd(ro_pos[:, 0]), np.nanstd(ro_pos[:, 1]), np.nanstd(ro_pos[:, 2]) #1.5, 1.5, 1.5
+            vx_ro_std, vy_ro_std, vz_ro_std = np.nanstd(ro_vel[:, 0]), np.nanstd(ro_vel[:, 1]), np.nanstd(ro_vel[:, 2]) #800, 800, 800
 
-            x_ro_mean, y_ro_mean, z_ro_mean = np.nanmean(ro_pos[:, 0]), np.nanmean(ro_pos[:, 1]), np.nanmean(ro_pos[:, 2])
-            vx_ro_mean, vy_ro_mean, vz_ro_mean = np.nanmean(ro_vel[:, 0]), np.nanmean(ro_vel[:, 1]), np.nanmean(ro_vel[:, 2])
+            x_ro_mean, y_ro_mean, z_ro_mean = np.nanmean(ro_pos[:, 0]), np.nanmean(ro_pos[:, 1]), np.nanmean(ro_pos[:, 2]) #0, 0, 0
+            vx_ro_mean, vy_ro_mean, vz_ro_mean = np.nanmean(ro_vel[:, 0]), np.nanmean(ro_vel[:, 1]), np.nanmean(ro_vel[:, 2]) #0, 0, 0
 
             x_ro_pos, y_ro_pos, z_ro_pos = (ro_pos[:, 0] - x_ro_mean) / x_ro_std, (ro_pos[:, 1] - y_ro_mean) / y_ro_std, (ro_pos[:, 2] - z_ro_mean) / z_ro_std
             x_ro_vel, y_ro_vel, z_ro_vel = (ro_vel[:, 0] - vx_ro_mean) / vx_ro_std, (ro_vel[:, 1] - vy_ro_mean) / vy_ro_std, (ro_vel[:, 2] - vz_ro_mean) / vz_ro_std
 
-            m_ro_std, m_ro_mean = np.nanstd(stellar_masses), np.nanmean(stellar_masses)
+            m_ro_std, m_ro_mean = np.nanstd(stellar_masses), np.nanmean(stellar_masses) #0.5, 10
             m_ro_mass = (stellar_masses - m_ro_mean) / m_ro_std
 
             # (x, y, v_z, mass)
