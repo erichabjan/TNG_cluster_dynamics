@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=coherence_analysis
 #SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/DS+_slurm_logs/coherence_analysis_%A_%a.log
-#SBATCH --array=0-100%4
-#SBATCH --cpus-per-task=28
-#SBATCH --time=2:00:00
-#SBATCH --mem=100G
+#SBATCH --array=0-100%101
+#SBATCH --cpus-per-task=1
+#SBATCH --time=0:15:00
+#SBATCH --mem=15G
 #SBATCH --partition=short
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
