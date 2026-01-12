@@ -574,3 +574,172 @@ def rotate_to_viewing_frame(positions: np.ndarray,
     vel_rot = velocities @ R
 
     return pos_rot, vel_rot
+
+### Particle Gridding data for coherence analysis
+
+def _prep_grid_shape(ngrid):
+    if isinstance(ngrid, int):
+        Nx = Ny = Nz = int(ngrid)
+    else:
+        Nx, Ny, Nz = map(int, ngrid)
+    if Nx <= 0 or Ny <= 0 or Nz <= 0:
+        raise ValueError("ngrid must be positive")
+    return Nx, Ny, Nz
+
+def _filter_inbounds(positions, L):
+    x, y, z = positions[:,0], positions[:,1], positions[:,2]
+    m = (x >= -L) & (x < L) & (y >= -L) & (y < L) & (z >= -L) & (z < L)
+    return m
+
+def _cic_indices_weights_nonperiodic(p_chunk, L, N):
+    Nx, Ny, Nz = N
+    dx, dy, dz = (2.0*L)/Nx, (2.0*L)/Ny, (2.0*L)/Nz
+    gx = (p_chunk[:,0] + L) / dx
+    gy = (p_chunk[:,1] + L) / dy
+    gz = (p_chunk[:,2] + L) / dz
+
+    ix0 = np.floor(gx).astype(np.int64)
+    iy0 = np.floor(gy).astype(np.int64)
+    iz0 = np.floor(gz).astype(np.int64)
+
+    fx = gx - ix0
+    fy = gy - iy0
+    fz = gz - iz0
+
+    ix1 = ix0 + 1
+    iy1 = iy0 + 1
+    iz1 = iz0 + 1
+
+    return (iz0, iz1), (iy0, iy1), (ix0, ix1), (fz, fy, fx), (Nz, Ny, Nx)
+
+def _masked_add(flat, idx, w, Ntot):
+    m = (idx >= 0) & (idx < Ntot)
+    if np.any(m):
+        np.add.at(flat, idx[m], w[m])
+
+def _accumulate_cic_scalar_nonperiodic(grid, idxz, idxy, idxx, fzfyfx, w):
+    Nz, Ny, Nx = grid.shape
+    iz0, iz1 = idxz; iy0, iy1 = idxy; ix0, ix1 = idxx
+    fz, fy, fx = fzfyfx
+
+    wz0 = 1.0 - fz; wy0 = 1.0 - fy; wx0 = 1.0 - fx
+    wz1 = fz;       wy1 = fy;       wx1 = fx
+
+    w000 = wz0 * wy0 * wx0 * w
+    w001 = wz0 * wy0 * wx1 * w
+    w010 = wz0 * wy1 * wx0 * w
+    w011 = wz0 * wy1 * wx1 * w
+    w100 = wz1 * wy0 * wx0 * w
+    w101 = wz1 * wy0 * wx1 * w
+    w110 = wz1 * wy1 * wx0 * w
+    w111 = wz1 * wy1 * wx1 * w
+
+    flat = grid.ravel()
+    stride_y = Nx
+    stride_z = Ny * Nx
+    Ntot = flat.size
+
+    idx000 = iz0 * stride_z + iy0 * stride_y + ix0
+    idx001 = iz0 * stride_z + iy0 * stride_y + ix1
+    idx010 = iz0 * stride_z + iy1 * stride_y + ix0
+    idx011 = iz0 * stride_z + iy1 * stride_y + ix1
+    idx100 = iz1 * stride_z + iy0 * stride_y + ix0
+    idx101 = iz1 * stride_z + iy0 * stride_y + ix1
+    idx110 = iz1 * stride_z + iy1 * stride_y + ix0
+    idx111 = iz1 * stride_z + iy1 * stride_y + ix1
+
+    mz0 = (iz0 >= 0) & (iz0 < Nz); mz1 = (iz1 >= 0) & (iz1 < Nz)
+    my0 = (iy0 >= 0) & (iy0 < Ny); my1 = (iy1 >= 0) & (iy1 < Ny)
+    mx0 = (ix0 >= 0) & (ix0 < Nx); mx1 = (ix1 >= 0) & (ix1 < Nx)
+
+    m000 = mz0 & my0 & mx0
+    m001 = mz0 & my0 & mx1
+    m010 = mz0 & my1 & mx0
+    m011 = mz0 & my1 & mx1
+    m100 = mz1 & my0 & mx0
+    m101 = mz1 & my0 & mx1
+    m110 = mz1 & my1 & mx0
+    m111 = mz1 & my1 & mx1
+
+    _masked_add(flat, idx000[m000], w000[m000], Ntot)
+    _masked_add(flat, idx001[m001], w001[m001], Ntot)
+    _masked_add(flat, idx010[m010], w010[m010], Ntot)
+    _masked_add(flat, idx011[m011], w011[m011], Ntot)
+    _masked_add(flat, idx100[m100], w100[m100], Ntot)
+    _masked_add(flat, idx101[m101], w101[m101], Ntot)
+    _masked_add(flat, idx110[m110], w110[m110], Ntot)
+    _masked_add(flat, idx111[m111], w111[m111], Ntot)
+
+def deposit_cic_scalar(positions, L, ngrid, weights=None, chunksize=1_000_000, dtype=np.float64):
+    Nx, Ny, Nz = _prep_grid_shape(ngrid)
+    grid = np.zeros((Nz, Ny, Nx), dtype=dtype)
+
+    m = _filter_inbounds(positions, L)
+    p = positions[m]
+    if weights is None:
+        w = np.ones(p.shape[0], dtype=dtype)
+    else:
+        w_full = np.asarray(weights, dtype=dtype)
+        if w_full.shape[0] != positions.shape[0]:
+            raise ValueError("weights must match positions length")
+        w = w_full[m]
+
+    N = p.shape[0]
+    start = 0
+    while start < N:
+        end = min(start + chunksize, N)
+        pc = p[start:end]
+        wc = w[start:end]
+        idxz, idxy, idxx, fzfyfx, _ = _cic_indices_weights_nonperiodic(pc, L, (Nx, Ny, Nz))
+        _accumulate_cic_scalar_nonperiodic(grid, idxz, idxy, idxx, fzfyfx, wc)
+        start = end
+    return grid
+
+def deposit_cic_velocity(positions, velocities, L, ngrid, mass=None, chunksize=1_000_000, dtype=np.float64):
+    Nx, Ny, Nz = _prep_grid_shape(ngrid)
+    momx = np.zeros((Nz, Ny, Nx), dtype=dtype)
+    momy = np.zeros((Nz, Ny, Nx), dtype=dtype)
+    momz = np.zeros((Nz, Ny, Nx), dtype=dtype)
+    mgrid = np.zeros((Nz, Ny, Nx), dtype=dtype)
+
+    m = _filter_inbounds(positions, L)
+    p = positions[m]
+    v = velocities[m]
+    if v.shape != (p.shape[0], 3):
+        raise ValueError("velocities must be (N,3) matching filtered positions")
+    if mass is None:
+        w = np.ones(p.shape[0], dtype=dtype)
+    else:
+        mass = np.asarray(mass, dtype=dtype)
+        if mass.shape[0] != positions.shape[0]:
+            raise ValueError("mass must match positions length")
+        w = mass[m]
+
+    N = p.shape[0]
+    start = 0
+    while start < N:
+        end = min(start + chunksize, N)
+        pc = p[start:end]
+        vc = v[start:end].astype(dtype, copy=False)
+        mc = w[start:end]
+        idxz, idxy, idxx, fzfyfx, _ = _cic_indices_weights_nonperiodic(pc, L, (Nx, Ny, Nz))
+
+        _accumulate_cic_scalar_nonperiodic(mgrid, idxz, idxy, idxx, fzfyfx, mc)
+        _accumulate_cic_scalar_nonperiodic(momx, idxz, idxy, idxx, fzfyfx, mc * vc[:,0])
+        _accumulate_cic_scalar_nonperiodic(momy, idxz, idxy, idxx, fzfyfx, mc * vc[:,1])
+        _accumulate_cic_scalar_nonperiodic(momz, idxz, idxy, idxx, fzfyfx, mc * vc[:,2])
+
+        start = end
+
+    with np.errstate(invalid='ignore', divide='ignore'):
+        vx = np.where(mgrid > 0, momx / mgrid, 0.0)
+        vy = np.where(mgrid > 0, momy / mgrid, 0.0)
+        vz = np.where(mgrid > 0, momz / mgrid, 0.0)
+
+    return vx, vy, vz, mgrid
+
+def voxel_size_from_L(L, ngrid):
+    Nx, Ny, Nz = _prep_grid_shape(ngrid)
+    dx, dy, dz = (2.0*L)/Nx, (2.0*L)/Ny, (2.0*L)/Nz
+    # coherence.compute_coherence_3d expects (dz, dy, dx)
+    return (dz, dy, dx)

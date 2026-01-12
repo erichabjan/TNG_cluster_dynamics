@@ -124,6 +124,7 @@ def data_loader(
         
         batched_graph = jraph.batch(batch_graphs)
         batched_targets = jnp.array(data_dict['targets'][batch_indices]).reshape(-1, 3)
+        #batched_targets = jnp.array(data_dict['targets'][batch_indices]).reshape(-1, 1)
         batched_masks = jnp.array(data_dict['masks'][batch_indices]).reshape(-1)
         
         yield batched_graph, batched_targets, batched_masks

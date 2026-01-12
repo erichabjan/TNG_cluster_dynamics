@@ -17,7 +17,7 @@ from training_structure import train_model, data_loader, create_train_state, tra
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_testing'
+suffix = '_long_john'
 
 ### Import data and create data loaders
 data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     test_data = preload_hdf5_to_memory(data_path, test_file)
 
     # Define hyperparameters
-    epochs = 500
+    epochs = 1000
     batch_size = 128
     latent_size = 128
 
