@@ -46,7 +46,7 @@ def preload_hdf5_to_memory(data_dir: str, file_in: str):
         
         print(f"Sample shapes - Nodes: {node_shape}, Edges: {edge_shape}, Targets: {target_shape}, Mask: {mask_shape}")
         
-        # Pre-allocate arrays
+        ### Pre-allocate arrays
         all_nodes = np.zeros((n_samples, *node_shape), dtype=np.float32)
         all_targets = np.zeros((n_samples, *target_shape), dtype=np.float32)
         all_masks = np.zeros((n_samples, *mask_shape), dtype=np.float32)
@@ -56,7 +56,7 @@ def preload_hdf5_to_memory(data_dir: str, file_in: str):
         all_n_nodes = np.zeros(n_samples, dtype=np.int32)
         all_n_edges = np.zeros(n_samples, dtype=np.int32)
         
-        # Load all samples
+        ### Load all samples
         print("Loading samples...", end='', flush=True)
         for i, sample_id in enumerate(sample_ids):
             if i % 10000 == 0 and i > 0:
@@ -96,37 +96,52 @@ def data_loader(
     shuffle: bool = True,
     latent_size: int = 128
 ) -> Iterator[Tuple[jraph.GraphsTuple, jnp.ndarray, jnp.ndarray]]:
-    """
-    Data loader using preloaded memory.
-    """
-    
+
     n_samples = len(data_dict['nodes'])
     indices = np.arange(n_samples)
-    
+
     if shuffle:
         np.random.shuffle(indices)
-    
+
     for i in range(0, n_samples, batch_size):
-        batch_indices = indices[i:i+batch_size]
-        
+        batch_indices = indices[i:i + batch_size]
+
         batch_graphs = []
-        for idx in batch_indices:
+        batch_targets = []
+        batch_masks = []
+
+        for b, idx in enumerate(batch_indices):
+            n_nodes = int(data_dict['n_nodes'][idx])
+            n_edges = int(data_dict['n_edges'][idx])
+
+            ### Slice to true sizes
+            nodes = jnp.array(data_dict['nodes'][idx])[:n_nodes]
+            targets = jnp.array(data_dict['targets'][idx])[:n_nodes]
+            masks = jnp.array(data_dict['masks'][idx])[:n_nodes]
+
+            edges = jnp.array(data_dict['edges'][idx])[:n_edges]
+            senders = jnp.array(data_dict['senders'][idx])[:n_edges]
+            receivers = jnp.array(data_dict['receivers'][idx])[:n_edges]
+
             graph = jraph.GraphsTuple(
-                nodes = jnp.array(data_dict['nodes'][idx]),
-                edges = jnp.array(data_dict['edges'][idx]),
-                senders = jnp.array(data_dict['senders'][idx]),
-                receivers = jnp.array(data_dict['receivers'][idx]),
-                n_node = jnp.array([data_dict['n_nodes'][idx]], dtype=jnp.int32),
-                n_edge = jnp.array([data_dict['n_edges'][idx]], dtype=jnp.int32),
-                globals = jnp.zeros((1, latent_size), dtype=jnp.float32)
+                nodes=nodes,
+                edges=edges,
+                senders=senders,
+                receivers=receivers,
+                n_node=jnp.array([n_nodes], dtype=jnp.int32),
+                n_edge=jnp.array([n_edges], dtype=jnp.int32),
+                globals=jnp.zeros((1, latent_size), dtype=jnp.float32),
             )
             batch_graphs.append(graph)
-        
+
+            batch_targets.append(targets)
+            batch_masks.append(masks)
+
         batched_graph = jraph.batch(batch_graphs)
-        batched_targets = jnp.array(data_dict['targets'][batch_indices]).reshape(-1, 3)
-        #batched_targets = jnp.array(data_dict['targets'][batch_indices]).reshape(-1, 1)
-        batched_masks = jnp.array(data_dict['masks'][batch_indices]).reshape(-1)
-        
+
+        batched_targets = jnp.concatenate(batch_targets, axis=0)
+        batched_masks = jnp.concatenate(batch_masks, axis=0)
+
         yield batched_graph, batched_targets, batched_masks
 
 
@@ -145,37 +160,23 @@ def mse_loss(params, graph, target, mask, apply_fn, training, rng=None):
         kwargs["rngs"] = {"dropout": rng}
 
     preds_graph = apply_fn({'params': params}, graph, **kwargs)
-    preds = preds_graph.nodes          # (N, 3)
+    preds = preds_graph.nodes
 
-    mask_f = mask.astype(preds.dtype)  # (N,)
-    count  = mask_f.sum() + 1e-12      # scalar
+    ### Fix shapes depending on output size
+    if preds.ndim == 1:
+        preds = preds[:, None]
+    if target.ndim == 1:
+        target = target[:, None]
+    if mask.ndim != 1:
+        mask = mask.reshape(-1)
 
-    # --- per-dimension masked mean/std (dims: z, vx, vy) ---
-    # shape (3,)
-    mean_pred = (preds  * mask_f[:, None]).sum(axis=0) / count
-    mean_tgt  = (target * mask_f[:, None]).sum(axis=0) / count
+    mask_f = mask.astype(preds.dtype)
+    count  = mask_f.sum() + 1e-12
 
-    var_pred = ((preds  - mean_pred)**2  * mask_f[:, None]).sum(axis=0) / count
-    var_tgt  = ((target - mean_tgt)**2  * mask_f[:, None]).sum(axis=0) / count
-
-    std_loss = jnp.mean((var_pred - var_tgt) ** 2)
-
-    jax.debug.print(
-        "pred mean/std (z,vx,vy): {mp} {sp}\n"
-        "tgt  mean/std (z,vx,vy): {mt} {st}\n"
-        "std_loss: {sl}, mask count: {mc}",
-        mp=mean_pred,
-        sp=jnp.sqrt(var_pred),
-        mt=mean_tgt,
-        st=jnp.sqrt(var_tgt),
-        sl=std_loss,
-        mc=count,
-    )
-
-    # --- usual masked MSE ---
-    mse_per_node = ((preds - target) ** 2).sum(-1)    # (N,)
+    ### Masked MSE
+    mse_per_node = ((preds - target) ** 2).sum(-1)
     mse = (mse_per_node * mask_f).sum() / count
-    loss = mse + 1.0 * std_loss
+    loss = mse
 
     return loss
 
@@ -184,17 +185,13 @@ def tree_l2_norm(tree):
 
 @jax.jit
 def train_step(state, graph, target, mask, rng_key):
+
+    rng, dropout_key, noise_key = jax.random.split(rng_key, 3)
+
     def loss_fn(params):
-        return mse_loss(params, graph, target, mask,
-                        state.apply_fn, training=True, rng=rng_key)
+        return mse_loss(params, graph, target, mask, state.apply_fn, training=True, rng=dropout_key)
 
     grads = jax.grad(loss_fn)(state.params)
-
-    jax.debug.print(
-        "grad norm: {g}, param norm: {p}",
-        g=tree_l2_norm(grads),
-        p=tree_l2_norm(state.params),
-    )
 
     return state.apply_gradients(grads=grads)
 
@@ -202,7 +199,6 @@ def train_step(state, graph, target, mask, rng_key):
 def eval_step(state, graph, target, mask):
 
     loss = mse_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
-    #loss = hybrid_mse_energy_loss(state.params, graph, target, mask, state.apply_fn, training=False, rng=None)
 
     return loss
 
@@ -237,7 +233,7 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
         for graph, tgt, mask in data_loader(train_data, batch_size, shuffle=True, latent_size=latent_size):
 
             rng_key, batch_key = jax.random.split(rng_key)
-            state = train_step(state, graph, tgt, mask, rng_key)
+            state = train_step(state, graph, tgt, mask, batch_key)
 
             current_loss = eval_step(state, graph, tgt, mask)
             current_loss.block_until_ready()
@@ -262,7 +258,7 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
         test_losses.append(ave_test_loss)
         print(f"Step {step} | Test Loss: {test_losses[step]}")
 
-        # Early stopping logic
+        ### Early stopping
         if early_stopping:
             if ave_test_loss < best_loss:
                 best_loss = ave_test_loss
@@ -288,14 +284,13 @@ def predict(model, params, data_dir, data_prefix = 'test'):
     mask_arr = []
     tgt_arr = []
         
-    # Get predictions batch by batch
+    ### Predictions batch by batch
     for graph, tgt, mask in create_dataloader(data_dir, data_prefix, shuffle=False):
-        # Forward pass without dropout
+
         preds = model.apply({'params': params}, graph, deterministic = True)
 
         predictions.append(preds.nodes)
         tgt_arr.append(tgt)
         mask_arr.append(mask)
         
-    # Concatenate all batch predictions
     return jnp.concatenate(predictions, axis=0).squeeze(), jnp.concatenate(tgt_arr, axis=0).squeeze(), jnp.concatenate(mask_arr, axis=0).squeeze()

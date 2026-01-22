@@ -12,6 +12,7 @@ import h5py
 
 import jraph
 import jax.numpy as jnp
+import jax.nn as jnn
 
 ### Set data directory, batch size, and maximum number of nodes (galaxies)
 test_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_test.h5'
@@ -19,10 +20,10 @@ train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_t
 
 BATCH_SIZE = 1               
 MAX_NODES  = 700
-KNN_K      = 2
+KNN_K      = 16
 MAX_EDGES  = MAX_NODES * KNN_K
 LATENT_SIZE = 128
-dataset_size = 10**4
+dataset_size = 10**3
 
 if os.path.exists(train_path):
     os.remove(train_path)
@@ -46,25 +47,35 @@ id_val = 0
 
 ### Functions for graph making
 
-def make_graph(nodes_np: np.ndarray) -> jraph.GraphsTuple:
+def make_graph(nodes_np: np.ndarray, eps: float = 1e-6) -> jraph.GraphsTuple:
     """Convert (N, 3) numpy array -> GraphsTuple."""
 
     nodes = jnp.asarray(nodes_np, dtype=jnp.float32)
-    N   = nodes.shape[0]
+    N = nodes.shape[0]
+
+    xyzv = nodes[:, :3]
+    #mass = nodes[:, 3:4]
 
     # Pair-wise calculation of x, y, v_z
-    diffs = nodes[:, None, :] - nodes[None, :, :]
+    diffs = xyzv[:, None, :] - xyzv[None, :, :]
     d2 = jnp.sum(diffs ** 2, axis=-1)
-    d2 = d2 + jnp.eye(N) * 1e9
+    d2 = d2 + jnp.eye(N, dtype=d2.dtype) * 1e9     # Adding the large identity prevents a node from selecting itself as an edge feature
     knn_idx = jnp.argsort(d2, axis=1)[:, :KNN_K]
 
     senders = jnp.repeat(jnp.arange(N, dtype=jnp.int32), KNN_K)
     receivers = knn_idx.reshape(-1).astype(jnp.int32)
 
-    src = nodes[senders]
-    dst = nodes[receivers]
-    rel = dst - src
+    src_xyzv = xyzv[senders]
+    dst_xyzv = xyzv[receivers]
+    rel = dst_xyzv - src_xyzv
     dist = jnp.linalg.norm(rel, axis=-1, keepdims=True)
+
+    #Mi = jnn.softplus(mass[senders]) ### Soft plus to keep the masses postive
+    #Mj = jnn.softplus(mass[receivers])
+    #gravity = (Mi + Mj) / (dist**2 + eps)
+
+    #edges = jnp.concatenate([rel, dist, gravity], axis=-1)
+
     edges = jnp.concatenate([rel, dist], axis=-1)
 
     dummy_globals = jnp.zeros((1, LATENT_SIZE), dtype=jnp.float32)
@@ -207,23 +218,32 @@ for cluster_idx in cluster_inds:
             ro_pos, ro_vel = TNG_DA.rotate_to_viewing_frame(pos, vel, proj_vec)
 
             # Standardize data (data is also unitless)
-            x_ro_std, y_ro_std, z_ro_std = np.nanstd(ro_pos[:, 0]), np.nanstd(ro_pos[:, 1]), np.nanstd(ro_pos[:, 2]) #1.5, 1.5, 1.5
-            vx_ro_std, vy_ro_std, vz_ro_std = np.nanstd(ro_vel[:, 0]), np.nanstd(ro_vel[:, 1]), np.nanstd(ro_vel[:, 2]) #800, 800, 800
+            x_ro_std, y_ro_std, z_ro_std = 1.5, 1.5, 1.5 #np.nanstd(ro_pos[:, 0]), np.nanstd(ro_pos[:, 1]), np.nanstd(ro_pos[:, 2])
+            vx_ro_std, vy_ro_std, vz_ro_std = 800, 800, 800 #np.nanstd(ro_vel[:, 0]), np.nanstd(ro_vel[:, 1]), np.nanstd(ro_vel[:, 2])
 
-            x_ro_mean, y_ro_mean, z_ro_mean = np.nanmean(ro_pos[:, 0]), np.nanmean(ro_pos[:, 1]), np.nanmean(ro_pos[:, 2]) #0, 0, 0
-            vx_ro_mean, vy_ro_mean, vz_ro_mean = np.nanmean(ro_vel[:, 0]), np.nanmean(ro_vel[:, 1]), np.nanmean(ro_vel[:, 2]) #0, 0, 0
+            x_ro_mean, y_ro_mean, z_ro_mean = 0, 0, 0 #np.nanmean(ro_pos[:, 0]), np.nanmean(ro_pos[:, 1]), np.nanmean(ro_pos[:, 2])
+            vx_ro_mean, vy_ro_mean, vz_ro_mean = 0, 0, 0 #np.nanmean(ro_vel[:, 0]), np.nanmean(ro_vel[:, 1]), np.nanmean(ro_vel[:, 2])
 
             x_ro_pos, y_ro_pos, z_ro_pos = (ro_pos[:, 0] - x_ro_mean) / x_ro_std, (ro_pos[:, 1] - y_ro_mean) / y_ro_std, (ro_pos[:, 2] - z_ro_mean) / z_ro_std
             x_ro_vel, y_ro_vel, z_ro_vel = (ro_vel[:, 0] - vx_ro_mean) / vx_ro_std, (ro_vel[:, 1] - vy_ro_mean) / vy_ro_std, (ro_vel[:, 2] - vz_ro_mean) / vz_ro_std
 
-            m_ro_std, m_ro_mean = np.nanstd(stellar_masses), np.nanmean(stellar_masses) #0.5, 10
+            m_ro_std, m_ro_mean = 0.5, 10 #np.nanstd(stellar_masses), np.nanmean(stellar_masses)
             m_ro_mass = (stellar_masses - m_ro_mean) / m_ro_std
 
-            # (x, y, v_z, mass)
-            inputs  = np.stack((x_ro_pos, y_ro_pos, z_ro_vel, m_ro_mass),  axis=-1)
+            ### Cluster centric distance and magnitude of velocity
+            r_ro = np.sqrt(ro_pos[:, 0]**2 + ro_pos[:, 1]**2 + ro_pos[:, 2]**2)
+            r_ro_mean, r_ro_std = 2, 1.25 #np.nanmean(r_ro), np.nanstd(r_ro)
+
+            v_ro = np.sqrt(ro_vel[:, 0]**2 + ro_vel[:, 1]**2 + ro_vel[:, 2]**2)
+            v_ro_mean, v_ro_std = 1300, 500 #np.nanmean(v_ro), np.nanstd(v_ro)
+
+            r_ro_zscore, v_ro_zscore = (r_ro - r_ro_mean) / r_ro_std, (v_ro - v_ro_mean) / v_ro_std
+
+            # (x, y, v_z)
+            inputs  = np.stack((x_ro_pos, y_ro_pos, z_ro_vel),  axis=-1)
+
             # (z, v_x, v_y)
-            targets = np.stack((z_ro_pos, x_ro_vel, y_ro_vel),  axis=-1)
-            #targets = np.stack((z_ro_pos,), axis=-1)
+            targets = np.stack((r_ro_zscore, v_ro_zscore),  axis=-1)
 
             g = make_graph(inputs)
             padded_graph, node_mask = pad_batch([g], MAX_NODES, MAX_EDGES)

@@ -6,9 +6,6 @@
 #SBATCH --time=1:00:00
 #SBATCH --mem=10G
 
-# SBATCH -p reservation
-# SBATCH --reservation=m_testing
-
 #SBATCH --partition=short
 
 source activate cl_dyn

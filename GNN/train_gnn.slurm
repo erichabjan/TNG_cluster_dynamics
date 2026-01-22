@@ -7,9 +7,6 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=4
 
-# SBATCH -p reservation
-# SBATCH --reservation=m_testing
-
 # Load CUDA module
 module load cuda/12.3.0
 

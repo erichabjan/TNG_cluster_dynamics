@@ -17,14 +17,12 @@ from training_structure import train_model, data_loader, create_train_state, tra
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_long_john'
+suffix = '_testing'
 
 ### Import data and create data loaders
 data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
 train_file = 'GNN_data_train.h5'
 test_file = 'GNN_data_test.h5'
-#train_file = 'GNN_data_train_one.h5'
-#test_file = 'GNN_data_train_one.h5'
 
 ### Train model
 if __name__ == "__main__":
@@ -34,7 +32,7 @@ if __name__ == "__main__":
 
     # Define hyperparameters
     epochs = 1000
-    batch_size = 128
+    batch_size = 16
     latent_size = 128
 
     early_stopping = True
@@ -52,14 +50,14 @@ if __name__ == "__main__":
     model = GraphConvNet(latent_size = latent_size, 
                          hidden_size = 256, 
                          num_mlp_layers = 3, 
-                         message_passing_steps = 1, 
+                         message_passing_steps = 5, 
                          skip_connections = True,
                          edge_skip_connections = True,
                          norm = "none", 
                          attention = True,
                          shared_weights = False,
                          relative_updates = False,
-                         output_dim = 3,
+                         output_dim = 2,
                          dropout_rate = 0.0)
 
     trained_state, model, train_losses, test_losses = train_model(
