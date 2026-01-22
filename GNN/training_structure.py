@@ -17,6 +17,9 @@ import h5py
 
 from jax.tree_util import tree_leaves
 
+import random
+import wandb
+
 def preload_hdf5_to_memory(data_dir: str, file_in: str):
     """
     Load entire HDF5 file into memory as numpy arrays.
@@ -204,7 +207,7 @@ def eval_step(state, graph, target, mask):
 
 def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarray], model, batch_size = 128,
                 epochs=1000, learning_rate=10**-4, grad_clipping = 1, latent_size = 128, 
-                early_stopping=False, patience=5):
+                early_stopping=False, patience=5, wandb_notes = 'testing'):
 
     rng_key = jax.random.PRNGKey(42)
     rng_key, init_key = jax.random.split(rng_key)
@@ -224,6 +227,18 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
     best_loss = float('inf')
     best_state = None
     epochs_without_improvement = 0
+
+    ### Tracking with WandB
+    run = wandb.init(
+        entity="erichabjan-northeastern-university",
+        project="phase-space-GNN",
+        config={
+            "learning_rate": learning_rate,
+            "architecture": "ConvGNN",
+            "epochs": epochs,
+            "notes": wandb_notes
+            },
+            )
 
     for step in range(epochs):
 
@@ -258,6 +273,8 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
         test_losses.append(ave_test_loss)
         print(f"Step {step} | Test Loss: {test_losses[step]}")
 
+        run.log({"Training Loss": train_losses[step], "Testing Loss": test_losses[step]})
+
         ### Early stopping
         if early_stopping:
             if ave_test_loss < best_loss:
@@ -272,6 +289,9 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
                 if best_state is not None:
                     state = best_state
                 break
+
+
+    run.finish()
 
     return state, model, np.array(train_losses), np.array(test_losses)
 

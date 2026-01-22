@@ -14,6 +14,10 @@ module load cuda/12.3.0
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate cl_dyn
 
+# WandB login and settings
+wandb login
+export WANDB_DIR=/home/habjan.e/TNG/Sandbox_notebooks/phase_space_recon
+
 # Unset any previously set CUDA-related environment variables
 unset LD_LIBRARY_PATH
 unset XLA_FLAGS

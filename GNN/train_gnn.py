@@ -24,6 +24,9 @@ data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
 train_file = 'GNN_data_train.h5'
 test_file = 'GNN_data_test.h5'
 
+### Weights and Biases Notes
+wandb_notes = "Baseline run: removed PairNorm; lr=1e-4; 3 MP steps."
+
 ### Train model
 if __name__ == "__main__":
 
@@ -70,7 +73,8 @@ if __name__ == "__main__":
         grad_clipping=gradient_clipping,
         latent_size=latent_size,
         early_stopping=early_stopping, 
-        patience=patience
+        patience=patience,
+        wandb_notes = wandb_notes
     )
 
     # Save model parameters
