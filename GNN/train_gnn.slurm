@@ -16,7 +16,7 @@ conda activate cl_dyn
 
 # WandB login and settings
 wandb login
-export WANDB_DIR=/home/habjan.e/TNG/Sandbox_notebooks/phase_space_recon
+export WANDB_DIR=/home/habjan.e/TNG/Sandbox_notebooks/phase_space_recon/wandb
 
 # Unset any previously set CUDA-related environment variables
 unset LD_LIBRARY_PATH
