@@ -23,7 +23,7 @@ MAX_NODES  = 700
 KNN_K      = 16
 MAX_EDGES  = MAX_NODES * KNN_K
 LATENT_SIZE = 128
-dataset_size = 10**3
+dataset_size = 10**4
 
 if os.path.exists(train_path):
     os.remove(train_path)

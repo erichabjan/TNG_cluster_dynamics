@@ -147,6 +147,10 @@ def data_loader(
 
         yield batched_graph, batched_targets, batched_masks
 
+def infinite_data_loader(data_dict, batch_size, latent_size=128, shuffle=True):
+    """Yield batches forever; reshuffle each pass."""
+    while True:
+        yield from data_loader(data_dict, batch_size=batch_size, shuffle=shuffle, latent_size=latent_size)
 
 
 def create_train_state(model, rng_key, learning_rate, grad_clipping, example_graph):
@@ -205,19 +209,26 @@ def eval_step(state, graph, target, mask):
 
     return loss
 
-def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarray], model, batch_size = 128,
-                epochs=1000, learning_rate=10**-4, grad_clipping = 1, latent_size = 128, 
-                early_stopping=False, patience=5, wandb_notes = 'testing'):
+def train_model(
+    train_data: Dict[str, np.ndarray], 
+    test_data: Dict[str, np.ndarray], 
+    model, 
+    batch_size = 128,
+    num_train_steps=50_000, 
+    eval_every=500, 
+    log_every=50, 
+    num_eval_batches=None,
+    learning_rate=10**-4, 
+    grad_clipping = 1, 
+    latent_size = 128, 
+    early_stopping=False, 
+    patience=10, 
+    wandb_notes = 'testing'):
 
     rng_key = jax.random.PRNGKey(42)
     rng_key, init_key = jax.random.split(rng_key)
 
-    example_loader = data_loader(
-        train_data, batch_size=1, shuffle=False, latent_size=latent_size
-    )
-
-    example_graph, _, _ = next(example_loader)
-    
+    example_graph, _, _ = next(data_loader(train_data, batch_size=1, shuffle=False, latent_size=latent_size))
     state = create_train_state(model, init_key, learning_rate, grad_clipping, example_graph)
     
     train_losses = []
@@ -235,65 +246,76 @@ def train_model(train_data: Dict[str, np.ndarray], test_data: Dict[str, np.ndarr
         config={
             "learning_rate": learning_rate,
             "architecture": "ConvGNN",
-            "epochs": epochs,
             "notes": wandb_notes
             },
             )
+    
+    train_stream = infinite_data_loader(train_data, batch_size, latent_size=latent_size, shuffle=True)
 
-    for step in range(epochs):
-
+    def eval_loop():
+        total = 0.0
         count = 0
-        total_loss = 0
+        if num_eval_batches is None:
+            # Full pass
+            for graph, tgt, mask in data_loader(test_data, batch_size, shuffle=False, latent_size=latent_size):
+                loss_val = eval_step(state, graph, tgt, mask)
+                total += float(loss_val)
+                count += 1
+        else:
+            # First num_eval_batches batches of the deterministic loader
+            it = data_loader(test_data, batch_size, shuffle=False, latent_size=latent_size)
+            for _ in range(num_eval_batches):
+                try:
+                    graph, tgt, mask = next(it)
+                except StopIteration:
+                    break
+                loss_val = eval_step(state, graph, tgt, mask)
+                total += float(loss_val)
+                count += 1
+        return total / max(count, 1)
+    
+    for step in range(1, num_train_steps + 1):
+        graph, tgt, mask = next(train_stream)
 
-        for graph, tgt, mask in data_loader(train_data, batch_size, shuffle=True, latent_size=latent_size):
+        rng_key, batch_key = jax.random.split(rng_key)
+        state = train_step(state, graph, tgt, mask, batch_key)
 
-            rng_key, batch_key = jax.random.split(rng_key)
-            state = train_step(state, graph, tgt, mask, batch_key)
+        batch_loss = eval_step(state, graph, tgt, mask)
+        batch_loss.block_until_ready()
+        batch_loss = float(batch_loss)
 
-            current_loss = eval_step(state, graph, tgt, mask)
-            current_loss.block_until_ready()
-            
-            count += 1
-            total_loss += float(current_loss)
+        train_losses.append(batch_loss)
+        run.log({"Training Loss": batch_loss, "Step": step}, step=step)
+
+        if (step % log_every) == 0:
+            print(f"Step {step} | Training Loss: {batch_loss:.6f}")
         
-        ave_train_loss = float(total_loss / max(count, 1))
-        train_losses.append(ave_train_loss)
-        print(f"Step {step} | Training Loss: {train_losses[step]}")
+        if (step % eval_every) == 0:
+            val_loss = eval_loop()
+            test_losses.append(val_loss)
 
-        count = 0
-        total_loss = 0
-        for graph, tgt, mask in data_loader(test_data, batch_size, shuffle=False, latent_size=latent_size):
+            print(f"Step {step} | Validation Loss: {val_loss:.6f}")
+            run.log({"Validation Loss": val_loss, "Step": step}, step=step)
 
-            loss_val = eval_step(state, graph, tgt, mask)
-            
-            count += 1
-            total_loss += loss_val
-        
-        ave_test_loss = float(total_loss / max(count, 1))
-        test_losses.append(ave_test_loss)
-        print(f"Step {step} | Test Loss: {test_losses[step]}")
+            ### Early stopping
+            if early_stopping:
+                if val_loss < best_loss:
+                    best_loss = val_loss
+                    best_state = state
+                    evals_without_improvement = 0
+                else:
+                    evals_without_improvement += 1
 
-        run.log({"Training Loss": train_losses[step], "Testing Loss": test_losses[step]})
-
-        ### Early stopping
-        if early_stopping:
-            if ave_test_loss < best_loss:
-                best_loss = ave_test_loss
-                best_state = state
-                epochs_without_improvement = 0
-            else:
-                epochs_without_improvement += 1
-
-            if epochs_without_improvement >= patience:
-                print(f"Early stopping triggered at epoch {step+1}")
-                if best_state is not None:
-                    state = best_state
-                break
-
+                if evals_without_improvement >= patience:
+                    print(f"Early stopping triggered at step {step}")
+                    if best_state is not None:
+                        state = best_state
+                    break
 
     run.finish()
-
+    
     return state, model, np.array(train_losses), np.array(test_losses)
+
 
 def predict(model, params, data_dir, data_prefix = 'test'):
     """
