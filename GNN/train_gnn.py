@@ -25,7 +25,7 @@ train_file = 'GNN_data_train.h5'
 test_file = 'GNN_data_test.h5'
 
 ### Weights and Biases Notes
-wandb_notes = "Baseline run"
+wandb_notes = "The same as the baseline run, except shared_weights = True"
 
 ### Train model
 if __name__ == "__main__":
@@ -54,14 +54,14 @@ if __name__ == "__main__":
  
     # Create and train the model
     model = GraphConvNet(latent_size = latent_size, 
-                         hidden_size = 256, 
+                         hidden_size = 1024, 
                          num_mlp_layers = 3, 
                          message_passing_steps = 5, 
                          skip_connections = True,
                          edge_skip_connections = True,
                          norm = "none", 
                          attention = True,
-                         shared_weights = False,
+                         shared_weights = True,
                          relative_updates = False,
                          output_dim = 2,
                          dropout_rate = 0.0)

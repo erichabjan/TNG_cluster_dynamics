@@ -257,13 +257,13 @@ def train_model(
         count = 0
         if num_eval_batches is None:
             # Full pass
-            for graph, tgt, mask in data_loader(test_data, batch_size, shuffle=False, latent_size=latent_size):
+            for graph, tgt, mask in data_loader(test_data, batch_size, shuffle=True, latent_size=latent_size):
                 loss_val = eval_step(state, graph, tgt, mask)
                 total += float(loss_val)
                 count += 1
         else:
             # First num_eval_batches batches of the deterministic loader
-            it = data_loader(test_data, batch_size, shuffle=False, latent_size=latent_size)
+            it = data_loader(test_data, batch_size, shuffle=True, latent_size=latent_size)
             for _ in range(num_eval_batches):
                 try:
                     graph, tgt, mask = next(it)
