@@ -15,8 +15,8 @@ import jax.numpy as jnp
 import jax.nn as jnn
 
 ### Set data directory, batch size, and maximum number of nodes (galaxies)
-test_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_test.h5'
-train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_train.h5'
+test_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_test_g.h5'
+train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_train_g.h5'
 
 BATCH_SIZE = 1               
 MAX_NODES  = 700
@@ -78,7 +78,8 @@ def make_graph(nodes_np: np.ndarray, eps: float = 1e-6) -> jraph.GraphsTuple:
 
     edges = jnp.concatenate([rel, dist], axis=-1)
 
-    dummy_globals = jnp.zeros((1, LATENT_SIZE), dtype=jnp.float32)
+    #dummy_globals = jnp.zeros((1, LATENT_SIZE), dtype=jnp.float32)
+    globals_ = jnp.array([[N]], dtype=jnp.float32)
 
     return jraph.GraphsTuple(
         nodes=nodes,             
@@ -87,7 +88,7 @@ def make_graph(nodes_np: np.ndarray, eps: float = 1e-6) -> jraph.GraphsTuple:
         receivers=receivers,
         n_node=jnp.array([N], dtype=jnp.int32),
         n_edge=jnp.array([edges.shape[0]],  dtype=jnp.int32),
-        globals=dummy_globals
+        globals=globals_
     )
 
 ### Function to pad a single graph

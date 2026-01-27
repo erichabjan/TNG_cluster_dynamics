@@ -104,6 +104,7 @@ def data_loader(
     indices = np.arange(n_samples)
 
     if shuffle:
+        np.random.seed(42) 
         np.random.shuffle(indices)
 
     for i in range(0, n_samples, batch_size):
@@ -133,7 +134,7 @@ def data_loader(
                 receivers=receivers,
                 n_node=jnp.array([n_nodes], dtype=jnp.int32),
                 n_edge=jnp.array([n_edges], dtype=jnp.int32),
-                globals=jnp.zeros((1, latent_size), dtype=jnp.float32),
+                globals=jnp.array([[n_nodes / jnp.array(data_dict['masks'][idx]).shape[0]]], dtype=jnp.float32),
             )
             batch_graphs.append(graph)
 
@@ -223,7 +224,10 @@ def train_model(
     latent_size = 128, 
     early_stopping=False, 
     patience=10, 
-    wandb_notes = 'testing'):
+    wandb_notes = 'testing',
+    hidden_size = None,
+    num_mlp_layers = None
+    ):
 
     rng_key = jax.random.PRNGKey(42)
     rng_key, init_key = jax.random.split(rng_key)
@@ -245,6 +249,8 @@ def train_model(
         project="phase-space-GNN",
         config={
             "learning_rate": learning_rate,
+            "hidden_size": hidden_size,
+            "num_mlp_layers": num_mlp_layers,
             "architecture": "ConvGNN",
             "notes": wandb_notes
             },

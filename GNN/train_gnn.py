@@ -11,21 +11,17 @@ import os
 import sys
 import pickle
 
-### Custom code 
 sys.path.append(os.getcwd())
 from training_structure import train_model, data_loader, create_train_state, train_step, preload_hdf5_to_memory
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_testing'
+suffix = '_testing_no_es'
 
 ### Import data and create data loaders
 data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
-train_file = 'GNN_data_train.h5'
-test_file = 'GNN_data_test.h5'
-
-### Weights and Biases Notes
-wandb_notes = "The same as the baseline run, except shared_weights = True"
+train_file = 'GNN_data_train_g.h5'
+test_file = 'GNN_data_test_g.h5'
 
 ### Train model
 if __name__ == "__main__":
@@ -33,29 +29,15 @@ if __name__ == "__main__":
     train_data = preload_hdf5_to_memory(data_path, train_file)
     test_data = preload_hdf5_to_memory(data_path, test_file)
 
-    # Define hyperparameters
-    batch_size = 16
+    ### Model paramters
+    hidden_size = 1024
+    num_mlp_layers = 3
     latent_size = 128
-
-    early_stopping = True
-    patience = 10
-    num_train_steps = 50_000
-    eval_every = 25
-    log_every = 50
-    num_eval_batches = 10
-
-    #total_steps = epochs * 10
-    #warm_up = int(0.05 * total_steps)
-    #decay = int(total_steps - warm_up)
-
-    #learning_rate = optax.warmup_cosine_decay_schedule(init_value = 0.0, peak_value = 3e-4, warmup_steps = warm_up, decay_steps = decay, end_value = 3e-5)
-    learning_rate = 3*10**-4
-    gradient_clipping = 1
  
     # Create and train the model
     model = GraphConvNet(latent_size = latent_size, 
-                         hidden_size = 1024, 
-                         num_mlp_layers = 3, 
+                         hidden_size = hidden_size, 
+                         num_mlp_layers = num_mlp_layers, 
                          message_passing_steps = 5, 
                          skip_connections = True,
                          edge_skip_connections = True,
@@ -65,6 +47,29 @@ if __name__ == "__main__":
                          relative_updates = False,
                          output_dim = 2,
                          dropout_rate = 0.0)
+
+
+    ### Training parameters
+    batch_size = 4
+
+    early_stopping = False
+    patience = 50
+    num_train_steps = 50_000
+    eval_every = 25
+    log_every = 50
+    num_eval_batches = 10
+    lr_halving = 25
+
+    learning_rate = learning_rate = optax.cosine_decay_schedule(init_value=1e-3,decay_steps=int(num_train_steps * 0.9), alpha=0.1)
+    gradient_clipping = 1
+
+    ### Weights and Biases Notes
+    wandb_notes = (
+        "Learning rate decay run. "
+        f"hidden_size={hidden_size}, num_mlp_layers={num_mlp_layers}. "
+        f"learning_rate={learning_rate}. "
+        "Same as baseline run, except shared_weights = True"
+    )
 
     trained_state, model, train_losses, test_losses = train_model(
         train_data=train_data,
@@ -80,7 +85,9 @@ if __name__ == "__main__":
         latent_size=latent_size,
         early_stopping=early_stopping, 
         patience=patience,
-        wandb_notes = wandb_notes
+        wandb_notes = wandb_notes,
+        hidden_size = hidden_size, 
+        num_mlp_layers = num_mlp_layers,
     )
 
     # Save model parameters
