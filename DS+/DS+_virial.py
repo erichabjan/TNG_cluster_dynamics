@@ -22,7 +22,7 @@ print('Processing Cluster ' + cluster_id + f' with {len(os.sched_getaffinity(0))
 
 cluster_number = int(cluster_id)
 bootstrap_mc = 0
-dsp_sims = 500
+dsp_sims = 1000
 df_len = 1000
 bootstrapping = False
 
@@ -43,7 +43,7 @@ if __name__ == "__main__":
 
 
 dsp_1_chunks, dsp_2_chunks, dsp_3_chunks = [], [], []
-sub_masses_chunks, vel_disp_chunks = [], []
+sub_masses_chunks, vel_disp_chunks, Munari_masses_chunks = [], [], []
 
 for res in results:
 
@@ -54,13 +54,15 @@ for res in results:
 
     sub_masses_chunks.append(np.array(res[1], dtype=object))
     vel_disp_chunks.append(np.array(res[2], dtype=object))
+    Munari_masses_chunks.append(np.array(res[3], dtype=object))
 
 dsp_1 = np.array(dsp_1_chunks)
 dsp_2 = np.array(dsp_2_chunks)
 dsp_3 = np.array(dsp_3_chunks, dtype=object)
 sub_masses = np.concatenate(sub_masses_chunks, axis=0)
 vel_disp = np.concatenate(vel_disp_chunks, axis=0)
-df = pd.concat([res[3] for res in results], ignore_index=True)
+sub_Munari_masses = np.concatenate(Munari_masses_chunks, axis=0)
+df = pd.concat([res[4] for res in results], ignore_index=True)
 
 save_path = "/projects/mccleary_group/habjan.e/TNG/Data/data_DS+_virial_results/"
 np.save(save_path + f"DS+_array_1_{cluster_number}.npy", dsp_1)
@@ -68,6 +70,7 @@ np.save(save_path + f"DS+_array_2_{cluster_number}.npy", dsp_2)
 np.save(save_path + f"DS+_array_3_{cluster_number}.npy", dsp_3)
 np.save(save_path + f"subhalo_masses_{cluster_number}.npy", sub_masses)
 np.save(save_path + f"velocity_dispersion_{cluster_number}.npy", vel_disp)
+np.save(save_path + f"subhalo_Munari_masses_{cluster_number}.npy", sub_Munari_masses)
 df.to_csv(save_path + f"DS+_Virial_df_{cluster_number}.csv", index=False)
 
 print('Successfully Ran DS+_virial.py')

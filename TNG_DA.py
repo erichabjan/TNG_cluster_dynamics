@@ -162,11 +162,12 @@ def project_3d_to_2d(positions, velocities, viewing_direction=np.array([0, 0, 1]
     
     return positions_2d, los_velocity
 
-def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 10, Ng_jump=1, Ng_max=None, ddof=1, cluster_name = None):
+def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 1, Ng_jump=1, Ng_max=None, ddof=1, cluster_name = None):
 
     Ng_max = int(np.sqrt(len(velocity))) if Ng_max is None else Ng_max
 
-    dsp_results = milaDS.DSp_groups(Xcoor=positions_2d[:, 0], Ycoor=positions_2d[:, 1], Vlos=velocity, Zclus=0, nsims=n_sims, Plim_P = Plim_P, Ng_jump=Ng_jump, Ng_max=Ng_max, ddof=ddof, cluster_name = cluster_name)
+    dsp_results = milaDS.DSp_groups(Xcoor=positions_2d[:, 0], Ycoor=positions_2d[:, 1], Vlos=velocity, Zclus=0, 
+                                    nsims=n_sims, Plim_P = Plim_P, Ng_jump=Ng_jump, Ng_max=Ng_max, ddof=ddof, cluster_name = cluster_name)
 
     dsp_g = np.zeros(positions_2d.shape[0])
     tng_g = np.zeros(positions_2d.shape[0])
@@ -284,7 +285,7 @@ def Mass_Munari(groups, los_velcocity_arr, h = 0.6774, A_1D_sub = 1199, alpha_su
 
         group_i = np.where(groups == group_num[i])[0]
 
-        if len(group_i) > 1 and len(group_i) < 30:
+        if len(group_i) > 1 and len(group_i) < 30 and ~np.isnan(group_num[i]):
 
             mean_los_velocity_i = np.mean(los_velcocity_arr[group_i])
             los_velocity_disp_i = np.sqrt((1 / (len(group_i) - 1)) * np.sum((los_velcocity_arr[group_i] - mean_los_velocity_i)**2))
@@ -334,7 +335,7 @@ def virial_mass_velocity(position_2d, los_velocity, groups):
 
         group_i_ind = np.where(groups == group_nums[k])[0]
 
-        if len(group_i_ind) > 1 and len(group_i_ind) < 30:
+        if len(group_i_ind) > 1 and len(group_i_ind) < 30 and ~np.isnan(group_num[k]):
 
             N = len(group_i_ind)
             r_ij = np.zeros((N, N))
@@ -361,68 +362,6 @@ def virial_mass_velocity(position_2d, los_velocity, groups):
     sub_vel_disp = np.array(sub_vel_disp) * 10**-3
 
     return M_cluster, sub_masses, sub_vel_disp
-
-def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, bootstrap = False):
-
-    ### Grab TNG data
-    pos, vel, group, sub_masses_TNG, h, halo_mass_TNG = get_cluster_props(cluster_number)
-
-    sub_mass_list, sub_veldisp_list, dsp_result_list = [], [], []
-
-    for i in range(proj_vector.shape[0]):
-
-        ### Project data to be observation-like
-        pos_2d, vel_los = project_3d_to_2d(pos, vel, viewing_direction=proj_vector[i])
-
-        ### Run DS+ and get back purity and completeness 
-        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims, Plim_P = 50, Ng_jump=1, cluster_name = str(proj_vector[i]))
-
-        ### Bootstrapping on purity and completeness
-        if bootstrap:
-            C_err, P_err = bootstrap_completeness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, 
-                                                         n_sims=dsp_sims, cluster_name = str(proj_vector[i]));
-        else: 
-            C_err, P_err = np.nan, np.nan
-
-        ### Find the DS+ Groups
-        dsp_groups = dsp_group_finder(dsp_output = dsp_results)
-
-        ### Find Virial Masses
-        halo_mass_Virial, sub_masses_Virial, sub_veldisp_Virial = virial_mass_velocity(position_2d = pos_2d, los_velocity = vel_los, groups = dsp_groups)
-
-        if i == 0:
-
-            df = pd.DataFrame({
-                "Cluster Index": [cluster_number],
-                "Projection x-Direction": [proj_vector[i,0]],
-                "Projection y-Direction": [proj_vector[i,1]],
-                "Projection z-Direction": [proj_vector[i,2]],
-                "Completeness": [C],
-                "Completeness Uncertainty": [C_err],
-                "Purity": [P],
-                "Purity Uncertainty": [P_err],
-                "Virial Halo Mass": [halo_mass_Virial]
-            })
-        
-        else: 
-
-            df_new = pd.DataFrame({
-                "Cluster Index": [cluster_number],
-                "Projection x-Direction": [proj_vector[i,0]],
-                "Projection y-Direction": [proj_vector[i,1]],
-                "Projection z-Direction": [proj_vector[i,2]],
-                "Completeness": [C],
-                "Completeness Uncertainty": [C_err],
-                "Purity": [P],
-                "Purity Uncertainty": [P_err],
-                "Virial Halo Mass": [halo_mass_Virial]
-            })
-
-            df = pd.concat([df, df_new], ignore_index=True)
-
-        sub_mass_list.append(sub_masses_Virial), sub_veldisp_list.append(sub_veldisp_Virial), dsp_result_list.append(dsp_results)
-
-    return dsp_result_list, sub_mass_list, sub_veldisp_list, df
 
 
 def compute_covariance_3d(positions):
@@ -527,6 +466,86 @@ def compare_3d_2d_shape(positions_3d, velocities_3d, viewing_direction):
     # Compare 
     difference = shape_2d - shape_3d
     return shape_3d, shape_2d, difference, T
+
+
+def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, bootstrap = False):
+
+    ### Grab TNG data
+    pos, vel, group, sub_masses_TNG, subhalo_type,h, halo_mass_TNG = get_cluster_props(cluster_number)
+
+    sub_mass_list, sub_veldisp_list, dsp_result_list, sub_Munari_list = [], [], [], []
+
+    shape_3d, T = shape_index_3d(positions = pos)
+
+    for i in range(proj_vector.shape[0]):
+
+        ### Project data to be observation-like
+        pos_2d, vel_los = project_3d_to_2d(pos, vel, viewing_direction=proj_vector[i])
+
+        ### Run DS+ and get back purity and completeness 
+        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims, Plim_P = 1, Ng_jump=1, cluster_name = str(proj_vector[i]))
+
+        ### Bootstrapping on purity and completeness
+        if bootstrap:
+            C_err, P_err = bootstrap_completeness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, 
+                                                         n_sims=dsp_sims, cluster_name = str(proj_vector[i]));
+        else: 
+            C_err, P_err = np.nan, np.nan
+
+        ### Find the DS+ Groups
+        dsp_groups = dsp_group_finder(dsp_output = dsp_results)
+
+        ### Find Virial Masses
+        halo_mass_Virial, sub_masses_Virial, sub_veldisp_Virial = virial_mass_velocity(position_2d = pos_2d, los_velocity = vel_los, groups = dsp_groups)
+        halo_Munari, sub_Munari = Mass_Munari(groups = dsp_groups, los_velcocity_arr = vel_los)
+
+        shape_2d = shape_index_2d(positions = pos, velocities = vel, proj_arr = proj_vector[i])
+        shape_diff = shape_2d - shape_3d
+
+        if i == 0:
+
+            df = pd.DataFrame({
+                "Cluster Index": [cluster_number],
+                "Projection x-Direction": [proj_vector[i,0]],
+                "Projection y-Direction": [proj_vector[i,1]],
+                "Projection z-Direction": [proj_vector[i,2]],
+                "Completeness": [C],
+                "Completeness Uncertainty": [C_err],
+                "Purity": [P],
+                "Purity Uncertainty": [P_err],
+                "Halo Mass Harmonic": [halo_mass_Virial],
+                "Halo Mass Munari": [halo_Munari],
+                "3D shape": [shape_3d],
+                "2D shape": [shape_2d],
+                "Shape difference": [shape_diff],
+                "Triaxiality": [T]
+            })
+        
+        else: 
+
+            df_new = pd.DataFrame({
+                "Cluster Index": [cluster_number],
+                "Projection x-Direction": [proj_vector[i,0]],
+                "Projection y-Direction": [proj_vector[i,1]],
+                "Projection z-Direction": [proj_vector[i,2]],
+                "Completeness": [C],
+                "Completeness Uncertainty": [C_err],
+                "Purity": [P],
+                "Purity Uncertainty": [P_err],
+                "Halo Mass Harmonic": [halo_mass_Virial],
+                "Halo Mass Munari": [halo_Munari],
+                "3D shape": [shape_3d],
+                "2D shape": [shape_2d],
+                "Shape difference": [shape_diff],
+                "Triaxiality": [T]
+            })
+
+            df = pd.concat([df, df_new], ignore_index=True)
+
+        sub_mass_list.append(sub_masses_Virial), sub_veldisp_list.append(sub_veldisp_Virial)
+        dsp_result_list.append(dsp_results), sub_Munari_list.append(sub_Munari)
+
+    return dsp_result_list, sub_mass_list, sub_veldisp_list, sub_Munari_list, df
 
 def rotate_to_viewing_frame(positions: np.ndarray,
                             velocities: np.ndarray,
@@ -743,3 +762,57 @@ def voxel_size_from_L(L, ngrid):
     dx, dy, dz = (2.0*L)/Nx, (2.0*L)/Ny, (2.0*L)/Nz
     # coherence.compute_coherence_3d expects (dz, dy, dx)
     return (dz, dy, dx)
+
+
+def _vdc(n, base=2):
+    """Van der Corput radical inverse sequence in [0,1)."""
+    v = np.zeros(n, dtype=np.float64)
+    denom = 1.0
+    k = np.arange(n, dtype=np.int64)
+    while np.any(k > 0):
+        denom *= base
+        k, rem = divmod(k, base)
+        v += rem / denom
+    return v
+
+def bright_distinct_colors(n=100, s=0.95, v_hi=0.95, v_lo=0.80, method="vdc", h0=0.0):
+    """
+    Generate n bright, easy-to-distinguish colors as hex strings (matplotlib-friendly).
+
+    method:
+      - "vdc": low-discrepancy hue ordering (very good separation for consecutive colors)
+      - "golden": golden-ratio stepping (also good)
+      - "uniform": evenly spaced hues in order (NOT recommended for categorical use)
+    """
+    if method == "vdc":
+        h = (h0 + _vdc(n, base=2)) % 1.0
+    elif method == "golden":
+        phi = 0.6180339887498949
+        h = (h0 + np.arange(n) * phi) % 1.0
+    elif method == "uniform":
+        h = (h0 + np.arange(n) / n) % 1.0
+    else:
+        raise ValueError("method must be one of: 'vdc', 'golden', 'uniform'")
+
+    # Two bright "rings" in value to reduce near-neighbor confusion (still bright).
+    v = np.where((np.arange(n) % 2) == 0, v_hi, v_lo)
+
+    # HSV -> RGB (vectorized)
+    k = np.floor(h * 6).astype(int)
+    f = h * 6 - k
+    p = v * (1 - s)
+    q = v * (1 - s * f)
+    tt = v * (1 - s * (1 - f))
+    k = k % 6
+
+    r = np.empty(n); g = np.empty(n); b = np.empty(n)
+
+    m = (k == 0); r[m], g[m], b[m] = v[m],  tt[m], p[m]
+    m = (k == 1); r[m], g[m], b[m] = q[m],  v[m],  p[m]
+    m = (k == 2); r[m], g[m], b[m] = p[m],  v[m],  tt[m]
+    m = (k == 3); r[m], g[m], b[m] = p[m],  q[m],  v[m]
+    m = (k == 4); r[m], g[m], b[m] = tt[m], p[m],  v[m]
+    m = (k == 5); r[m], g[m], b[m] = v[m],  p[m],  q[m]
+
+    rgb255 = np.clip(np.round(np.stack([r, g, b], axis=1) * 255), 0, 255).astype(np.uint8)
+    return np.array([f"#{R:02X}{G:02X}{B:02X}" for R, G, B in rgb255], dtype=object)

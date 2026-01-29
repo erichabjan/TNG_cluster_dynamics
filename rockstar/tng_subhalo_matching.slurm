@@ -5,11 +5,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --time=02:00:00
 #SBATCH --mem=15G
-
-#SBATCH -p reservation
-#SBATCH --reservation=m_testing
-
-# SBATCH --partition=short
+#SBATCH --partition=short
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
