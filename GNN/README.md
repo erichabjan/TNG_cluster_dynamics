@@ -10,4 +10,4 @@ And the ability of the model to reconstruct the cluster-centric radii and magnit
   <img src="../figures/tng_predictions.png" alt="tng_predictions" width="width:75%" />
 </p>
 
-The reconstruction of these quantities will allow for the dynamical state of the clsuter to be probed and for projection effects to be accounted for in both dynamical and weak lensing derived masses. To see the progress of the mode, check out my [Weights and Biases for this project](https://wandb.ai/erichabjan-northeastern-university/phase-space-GNN).
+The reconstruction of these quantities will allow for the dynamical state of the clsuter to be probed and for projection effects to be accounted for in both dynamical and weak lensing derived masses. To see how the model is progressing, check out this project on [Weights and Biases](https://wandb.ai/erichabjan-northeastern-university/phase-space-GNN).

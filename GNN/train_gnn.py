@@ -16,7 +16,7 @@ from training_structure import train_model, data_loader, create_train_state, tra
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_testing_no_es'
+suffix = '_testing_no_es_deep'
 
 ### Import data and create data loaders
 data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
@@ -30,8 +30,8 @@ if __name__ == "__main__":
     test_data = preload_hdf5_to_memory(data_path, test_file)
 
     ### Model paramters
-    hidden_size = 1024
-    num_mlp_layers = 3
+    hidden_size = 2048
+    num_mlp_layers = 5
     latent_size = 128
  
     # Create and train the model
@@ -57,8 +57,7 @@ if __name__ == "__main__":
     num_train_steps = 50_000
     eval_every = 25
     log_every = 50
-    num_eval_batches = 10
-    lr_halving = 25
+    num_eval_batches = 100
 
     learning_rate = learning_rate = optax.cosine_decay_schedule(init_value=1e-3,decay_steps=int(num_train_steps * 0.9), alpha=0.1)
     gradient_clipping = 1
