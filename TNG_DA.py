@@ -335,7 +335,7 @@ def virial_mass_velocity(position_2d, los_velocity, groups):
 
         group_i_ind = np.where(groups == group_nums[k])[0]
 
-        if len(group_i_ind) > 1 and len(group_i_ind) < 30 and ~np.isnan(group_num[k]):
+        if len(group_i_ind) > 1 and len(group_i_ind) < 30 and ~np.isnan(group_nums[k]):
 
             N = len(group_i_ind)
             r_ij = np.zeros((N, N))
