@@ -45,14 +45,28 @@ halfbox = L / 2
 difpos = np.subtract(data['dm_pos'], data['CoP'])
 centered_pos = np.where( abs(difpos) > halfbox, abs(difpos)- L , difpos)
 
-coordinates = centered_pos
 # c Mpc / h 
-coordinates = coordinates / (data['h'] * data['a'])
+coordinates = centered_pos
 # km / s
 velocities = data['dm_vel']
 # solar masses
-masses = data['dm_mass']
+masses = data['dm_mass'] * data['h']
 ids = data['dm_ID']
+
+# Remove extrenuous particles
+keep, rcut_map, pix = TNG_DA.healpix_radial_density_cut(
+     coordinates,
+     nside=5,
+     nbins=35,
+     density_thresh=1.25,
+     min_counts_per_bin=1,
+     min_points_per_pix=50,
+ )
+
+coordinates = coordinates[keep]
+masses = masses[keep]
+ids = ids[keep]
+velocities = velocities[keep]
 
 ### Load shared ROCKSTAR library
 
@@ -143,7 +157,7 @@ dm_mass_h = masses[0] * data['h']
 
 # BAHAMAS softening length in Mpc / h (fixed at 4 kpc/h -> convert to Mpc/h)
 
-softening_in_Mpc_over_h = 4 / 10**3
+softening_in_Mpc_over_h = 4 * 10**-3
 
 # Scale factor at z = 0.375
 

@@ -15,8 +15,8 @@ import jax.numpy as jnp
 import jax.nn as jnn
 
 ### Set data directory, batch size, and maximum number of nodes (galaxies)
-test_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_test_g.h5'
-train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_train_g.h5'
+test_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_test.h5'
+train_path = '/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/GNN_data_train.h5'
 
 BATCH_SIZE = 1               
 MAX_NODES  = 700
@@ -205,9 +205,13 @@ for cluster_idx in cluster_inds:
         coordinates = np.where( abs(difpos) > halfbox, abs(difpos)- L , difpos)
 
         # c Mpc / h 
-        pos = coordinates / (data['h'] * data['a'])
+        eps = 10**-9
+        pos = (coordinates / (data['h'] * data['a'])) + eps
         # km / s
         vel = data['sub_vel'][bright_bool,:]
+        v_bulk = np.mean(vel, axis=0)
+        vel = vel - v_bulk
+
         # solar masses
         stellar_masses = np.log10(data['sub_massTotal'][bright_bool, 4])
 

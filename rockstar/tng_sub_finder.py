@@ -37,9 +37,11 @@ print('Processing Cluster ' + cluster_id)
 halo_cutout_url = f'http://www.tng-project.org/api/TNG300-1/snapshots/99/halos/' + cluster_id + '/cutout.hdf5' 
 params={'dm':'Coordinates,ParticleIDs,Velocities'}
 fName = '/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_' + cluster_id
-cutout = iapi.get(halo_cutout_url, params = params, fName = fName)
+#cutout = iapi.get(halo_cutout_url, params = params, fName = fName)
 
 ### Import downloaded cluster
+
+h = 0.667
 
 with h5py.File(fName+'.hdf5', 'r') as f:
 
@@ -48,7 +50,7 @@ with h5py.File(fName+'.hdf5', 'r') as f:
     ids = f['PartType1']['ParticleIDs'][:]
 
 ### Hard-coded particle DM mass
-masses = np.zeros(coordinates.shape[0]) + 5.9 * 10**7
+masses = np.zeros(coordinates.shape[0]) + (5.9 * 10**7 * h)
 coordinates = coordinates
 
 ### Correct coordinates for TNG simulation coordiantes
@@ -56,6 +58,19 @@ cluster_id = np.int64(cluster_id)
 coordinates = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = coordinates) 
 coordinates = coordinates * 10**-3     #Convert to Mpc/h
 
+keep, rcut_map, pix = TNG_DA.healpix_radial_density_cut(
+     coordinates,
+     nside=5,
+     nbins=35,
+     density_thresh=1.25 * (4661 / 50),
+     min_counts_per_bin=1,
+     min_points_per_pix=50,
+ )
+
+coordinates = coordinates[keep]
+masses = masses[keep]
+ids = ids[keep]
+velocities = velocities[keep]
 
 ### Load shared ROCKSTAR library
 
@@ -146,11 +161,11 @@ fof_fraction = 0.7
 
 # DM particle mass in comoving solar masses 
 
-dm_mass_h = masses[0] * 0.667
+dm_mass_h = masses[0] * h
 
 # TNG softening length in Mpc / h (from Nelson et al. 2019)
 
-softening_in_Mpc_over_h = (1.48 * 10**-3) / 0.667
+softening_in_Mpc_over_h = (1.48 * 10**-3) * h
 
 # Scale factor at z = 0
 

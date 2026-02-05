@@ -16,12 +16,12 @@ from training_structure import train_model, data_loader, create_train_state, tra
 from gnn import GraphConvNet
 
 ### Add a suffix for a new model
-suffix = '_testing_no_es_deep'
+suffix = '_testing_newdata'
 
 ### Import data and create data loaders
 data_path = "/projects/mccleary_group/habjan.e/TNG/Data/GNN_SBI_data/"
-train_file = 'GNN_data_train_g.h5'
-test_file = 'GNN_data_test_g.h5'
+train_file = 'GNN_data_train.h5'
+test_file = 'GNN_data_test.h5'
 
 ### Train model
 if __name__ == "__main__":
@@ -30,8 +30,8 @@ if __name__ == "__main__":
     test_data = preload_hdf5_to_memory(data_path, test_file)
 
     ### Model paramters
-    hidden_size = 2048
-    num_mlp_layers = 5
+    hidden_size = 1024
+    num_mlp_layers = 3
     latent_size = 128
  
     # Create and train the model
@@ -67,7 +67,7 @@ if __name__ == "__main__":
         "Learning rate decay run. "
         f"hidden_size={hidden_size}, num_mlp_layers={num_mlp_layers}. "
         f"learning_rate={learning_rate}. "
-        "Same as baseline run, except shared_weights = True"
+        "Same as baseline run, except shared_weights = True, no early stoppinf=g, fixed velocities"
     )
 
     trained_state, model, train_losses, test_losses = train_model(

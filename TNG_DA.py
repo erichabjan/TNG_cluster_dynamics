@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import os.path
 import pandas as pd
 from IPython.display import display, Markdown
+import healpy as hp
 
 baseUrl = 'http://www.tng-project.org/api/'
 
@@ -39,19 +40,19 @@ def gettree(snapnum,subid):
 def get_cluster_props(cluster_ind):
 
     ### Arrays of the M_200 of halos and the halo centers, not necessarily galaxy clusters
-    Crit200 = iapi.getHaloField(field = 'Group_M_Crit200', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_M_Crit200', rewriteFile=0)
+    GroupMass = iapi.getHaloField(field = 'GroupMass', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_GroupMass', rewriteFile=0)
     halo_center = iapi.getHaloField(field = 'GroupPos', simulation=sim, snapshot=99, fileName=TNG_data_path+'TNG_data/'+sim+'_GroupPos', rewriteFile=0)
 
     ### Make a cluster mass cut, now we have galaxy cluters
     quan_val = np.log10(5 * 10**14)
     Group_num = iapi.getSubhaloField('SubhaloGrNr', simulation=sim, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloGrNr', rewriteFile=0) # Import array that identifies the halo each subhalo belongs to 
     h = simdata['hubble']
-    halo_mass = Crit200[cluster_ind] * 10**10 / h
+    halo_mass = GroupMass[cluster_ind] * 10**10 / h
 
     if halo_mass > 10**quan_val:
-        display(Markdown(f"Cluster {cluster_ind} has a $M_{{200}}$ greater than {np.round(quan_val)} $\\log(M_\\odot)$"))
+        display(Markdown(f"Cluster {cluster_ind} has a $M$ greater than {np.round(quan_val)} $\\log(M_\\odot)$"))
     else:
-        display(Markdown(f"Cluster {cluster_ind} has a $M_{{200}}$ less than {np.round(quan_val)} $\\log(M_\\odot)$"))
+        display(Markdown(f"Cluster {cluster_ind} has a $M$ less than {np.round(quan_val)} $\\log(M_\\odot)$"))
 
     ### Pick a galaxy cluster
     sub_ind = np.where(Group_num == cluster_ind)[0]
@@ -125,6 +126,124 @@ def coord_cm_corr(cluster_ind, coordinates):
     distsq = np.sum(np.square(difpos),axis=1)
 
     return difpos
+
+def healpix_radial_density_cut(
+    pos_xyz: np.ndarray,
+    nside: int = 64,
+    nbins: int = 30,
+    rmin: float | None = None,
+    rmax: float | None = None,
+    density_thresh: float = 0.0,
+    min_counts_per_bin: int = 5,
+    min_points_per_pix: int = 50,
+    nest: bool = False,
+    fill_value: float = np.inf,
+):
+    """
+    Drop points beyond a per-HEALPix-pixel radius where the (per-pixel) radial number density
+    falls below `density_thresh`.
+
+    Parameters
+    ----------
+    pos_xyz : (N,3) array
+        Cartesian positions.
+    nside : int
+        HEALPix NSIDE. Total pixels = 12*nside^2. Increase for finer angular resolution.
+    nbins : int
+        Number of radial bins (log-spaced).
+    rmin, rmax : float or None
+        Radial range for binning. If None, computed from data (robust percentiles).
+    density_thresh : float
+        Threshold on number density n(r) [counts / volume] within each pixel.
+        You choose the units via your position units.
+    min_counts_per_bin : int
+        Ignore bins with fewer than this many points when deciding the cutoff.
+    min_points_per_pix : int
+        Pixels with fewer points than this are considered too sparse; they get r_cut = fill_value.
+    nest : bool
+        HEALPix ordering.
+    fill_value : float
+        r_cut assigned to pixels with too few points or no detected drop below threshold.
+
+    Returns
+    -------
+    keep_mask : (N,) bool
+        True if point is kept.
+    r_cut_by_pix : (npix,) float
+        Per-pixel cutoff radius.
+    pix_id : (N,) int
+        Pixel id per point.
+    """
+
+    pos_xyz = np.asarray(pos_xyz)
+    if pos_xyz.ndim != 2 or pos_xyz.shape[1] != 3:
+        raise ValueError("pos_xyz must be shape (N,3)")
+
+    # Convert to spherical coordinates
+    x, y, z = pos_xyz[:, 0], pos_xyz[:, 1], pos_xyz[:, 2]
+    r = np.sqrt(x*x + y*y + z*z)
+
+    if rmin is None:
+        rmin = np.percentile(r[r > 0], 1)
+    if rmax is None:
+        rmax = np.percentile(r, 99.5)
+
+    if not (rmin > 0 and rmax > rmin):
+        raise ValueError(f"Bad rmin/rmax: rmin={rmin}, rmax={rmax}")
+
+    theta = np.arccos(np.clip(z / np.where(r == 0, 1.0, r), -1.0, 1.0))
+    phi = np.mod(np.arctan2(y, x), 2*np.pi)
+
+    npix = hp.nside2npix(nside)
+    pix_id = hp.ang2pix(nside, theta, phi, nest=nest)
+
+    # Log-spaced radial bins
+    edges = np.logspace(np.log10(rmin), np.log10(rmax), nbins + 1)
+    shell_vol = (4.0 / 3.0) * np.pi * (edges[1:]**3 - edges[:-1]**3)
+
+    # Sort points by pixel for efficient group processing
+    order = np.argsort(pix_id)
+    pix_sorted = pix_id[order]
+    r_sorted = r[order]
+
+    # Find group boundaries
+    uniq_pix, start_idx, counts = np.unique(pix_sorted, return_index=True, return_counts=True)
+    end_idx = start_idx + counts
+
+    r_cut_by_pix = np.full(npix, fill_value, dtype=float)
+
+    # Loop over populated pixels
+    for p, s, e, npts in zip(uniq_pix, start_idx, end_idx, counts):
+        if npts < min_points_per_pix:
+            continue
+
+        rp = r_sorted[s:e]
+        # Histogram counts in radial bins for this pixel
+        hist, _ = np.histogram(rp, bins=edges)
+
+        # Convert to number density per shell
+        dens = hist / shell_vol
+
+        # Consider only "reliable" bins
+        reliable = hist >= min_counts_per_bin
+        if not np.any(reliable):
+            continue
+        
+        below = reliable & (dens < density_thresh)
+
+        if np.any(below):
+            # Cut at the *inner edge* of the first bin that goes below threshold
+            first_bad = np.argmax(below)  # first True index
+            r_cut_by_pix[p] = edges[first_bad]  # inner edge
+        else:
+            # Never drops below threshold within [rmin,rmax]
+            r_cut_by_pix[p] = fill_value
+
+    # Apply per-point radial cut based on its pixel
+    r_cut_for_points = r_cut_by_pix[pix_id]
+    keep_mask = r <= r_cut_for_points
+
+    return keep_mask, r_cut_by_pix, pix_id
 
 def project_3d_to_2d(positions, velocities, viewing_direction=np.array([0, 0, 1])):
     """
