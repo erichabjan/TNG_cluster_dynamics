@@ -40,13 +40,17 @@ print('Processing Cluster ' + cluster_id + ' in ' + dm_folder)
 data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/" + dm_folder + "/GrNm_" + cluster_id + ".npz")
 
 ### acount for periodic bounary conditions
-L = np.max(data['dm_pos'])
-halfbox = L / 2
+#L = np.max(data['dm_pos'])
+#halfbox = L / 2
+#difpos = np.subtract(data['dm_pos'], data['CoP'])
+#centered_pos = np.where( abs(difpos) > halfbox, abs(difpos)- L , difpos)
+
+boxsize = 400
 difpos = np.subtract(data['dm_pos'], data['CoP'])
-centered_pos = np.where( abs(difpos) > halfbox, abs(difpos)- L , difpos)
+difpos = (difpos + 0.5 * boxsize) % boxsize - 0.5 * boxsize
 
 # c Mpc / h 
-coordinates = centered_pos
+coordinates = difpos
 # km / s
 velocities = data['dm_vel']
 # solar masses
@@ -54,19 +58,19 @@ masses = data['dm_mass'] * data['h']
 ids = data['dm_ID']
 
 # Remove extrenuous particles
-keep, rcut_map, pix = TNG_DA.healpix_radial_density_cut(
-     coordinates,
-     nside=5,
-     nbins=35,
-     density_thresh=1.25,
-     min_counts_per_bin=1,
-     min_points_per_pix=50,
- )
+#keep, rcut_map, pix = TNG_DA.healpix_radial_density_cut(
+ #    coordinates,
+  #   nside=5,
+   #  nbins=35,
+#     density_thresh=1.25,
+ #    min_counts_per_bin=1,
+  #   min_points_per_pix=50,
+ #)
 
-coordinates = coordinates[keep]
-masses = masses[keep]
-ids = ids[keep]
-velocities = velocities[keep]
+#coordinates = coordinates[keep]
+#masses = masses[keep]
+#ids = ids[keep]
+#velocities = velocities[keep]
 
 ### Load shared ROCKSTAR library
 
@@ -145,7 +149,7 @@ member_fname_b   = member_fname.encode("utf-8")
 
 # Minimum number of particles in a subhalo (mass resolution matched with tng)
 
-min_particles_in_subhalo = 50
+min_particles_in_subhalo = 200
 
 # FoF fraction
 

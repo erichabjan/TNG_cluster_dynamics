@@ -37,7 +37,8 @@ sub_ind = np.where(Group_num == cluster_in)[0]
 sub_lens = SubhaloLenType[sub_ind, :]
 
 # Import TNG particle IDs for the FoF halo
-fName = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_{cluster_in}.hdf5'
+#fName = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_{cluster_in}.hdf5'
+fName = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/dm_within_5r200_{cluster_in}.hdf5'
 
 with h5py.File(fName, 'r') as f:
 

@@ -34,9 +34,9 @@ cluster_id = args.cluster_ID
 print('Processing Cluster ' + cluster_id)
 
 ### Download particle data from TNG
-halo_cutout_url = f'http://www.tng-project.org/api/TNG300-1/snapshots/99/halos/' + cluster_id + '/cutout.hdf5' 
-params={'dm':'Coordinates,ParticleIDs,Velocities'}
-fName = '/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_' + cluster_id
+#halo_cutout_url = f'http://www.tng-project.org/api/TNG300-1/snapshots/99/halos/' + cluster_id + '/cutout.hdf5' 
+#params={'dm':'Coordinates,ParticleIDs,Velocities'}
+fName = '/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/dm_within_5r200_' + cluster_id
 #cutout = iapi.get(halo_cutout_url, params = params, fName = fName)
 
 ### Import downloaded cluster
@@ -55,22 +55,22 @@ coordinates = coordinates
 
 ### Correct coordinates for TNG simulation coordiantes
 cluster_id = np.int64(cluster_id)
-coordinates = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = coordinates) 
+coordinates = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = coordinates, boxsize = 205000) 
 coordinates = coordinates * 10**-3     #Convert to Mpc/h
 
-keep, rcut_map, pix = TNG_DA.healpix_radial_density_cut(
-     coordinates,
-     nside=5,
-     nbins=35,
-     density_thresh=1.25 * (4661 / 50),
-     min_counts_per_bin=1,
-     min_points_per_pix=50,
- )
+#keep, rcut_map, pix = TNG_DA.healpix_radial_density_cut(
+#     coordinates,
+#     nside=5,
+#     nbins=35,
+#     density_thresh=1.25 * (4661 / 50),
+#     min_counts_per_bin=1,
+#     min_points_per_pix=50,
+# )
 
-coordinates = coordinates[keep]
-masses = masses[keep]
-ids = ids[keep]
-velocities = velocities[keep]
+#coordinates = coordinates[keep]
+#masses = masses[keep]
+#ids = ids[keep]
+#velocities = velocities[keep]
 
 ### Load shared ROCKSTAR library
 
@@ -153,7 +153,7 @@ member_fname_b   = member_fname.encode("utf-8")
 
 # Minimum number of particles in a subhalo (mass resolution matched with bahamas)
 
-min_particles_in_subhalo = 4661
+min_particles_in_subhalo = 18644
 
 # FoF fraction
 

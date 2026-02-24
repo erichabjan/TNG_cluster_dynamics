@@ -97,7 +97,7 @@ def get_cluster_props(cluster_ind):
     
     return pos, vel, groups, subhalo_masses, subhalo_type, h, halo_mass
 
-def coord_cm_corr(cluster_ind, coordinates):
+def coord_cm_corr(cluster_ind, coordinates, boxsize = 205000):
 
     """
     Corrects for TNG coordinates into cluster-centric coordinates
@@ -111,19 +111,10 @@ def coord_cm_corr(cluster_ind, coordinates):
     """
 
     halo_center = iapi.getHaloField(field ='GroupPos', simulation=sim, snapshot=99, fileName=TNG_data_path+'TNG_data/'+sim+'_GroupPos', rewriteFile=0)
-    h = simdata['hubble']
-
     pos_comoving = halo_center[cluster_ind, :] ## position in units c * kpc / h
-    cm_pos = pos_comoving #/ h
 
-    sub_uncorrected_pos = coordinates #/ h
-    L = np.max(sub_uncorrected_pos)
-    halfbox = L / 2
-
-    difpos = np.subtract(sub_uncorrected_pos, cm_pos)
-    #Replace values that are affected by boundary conditions
-    difpos = np.where( abs(difpos) > halfbox, abs(difpos)- L , difpos)
-    distsq = np.sum(np.square(difpos),axis=1)
+    difpos = np.subtract(coordinates, pos_comoving)
+    difpos = (difpos + 0.5 * boxsize) % boxsize - 0.5 * boxsize
 
     return difpos
 
