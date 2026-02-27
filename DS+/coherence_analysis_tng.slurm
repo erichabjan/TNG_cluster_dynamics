@@ -17,4 +17,4 @@ source activate cl_dyn
 cd /projects/mccleary_group/habjan.e/TNG/Data
 
 cluster_id=$SLURM_ARRAY_TASK_ID
-srun --cpu-bind=cores python3 /home/habjan.e/TNG/TNG_cluster_dynamics/DS+/coherence_analysis.py "$cluster_id"
+srun --cpu-bind=cores python3 /home/habjan.e/TNG/TNG_cluster_dynamics/DS+/coherence_analysis_tng.py "$cluster_id"

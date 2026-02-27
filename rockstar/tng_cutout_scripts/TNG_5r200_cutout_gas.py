@@ -60,6 +60,7 @@ def write_dm_cutout_within_rmult(
     dtype_pos: str = "f4",
     dtype_vel: str = "f4",
     dtype_id: str  = "u8",
+    dtype_mass: str = "f4",
 ) -> str:
     """
     Build a DM cutout within rmult*r200 around halo center using local snapshot chunk files.
@@ -119,6 +120,14 @@ def write_dm_cutout_within_rmult(
             chunks=True,
             compression=compression
         )
+        dset_mass = g.create_dataset(
+            "Masses",
+            shape=(0,),
+            maxshape=(None,),
+            dtype=dtype_mass,
+            chunks=True,
+            compression=compression
+        )
 
         n_written = 0
         n_chunks_read = 0
@@ -132,11 +141,11 @@ def write_dm_cutout_within_rmult(
                         n_chunks_missing_pt1 += 1
                         continue
                     pt = f["PartType0"]
-                    coords = pt["Coordinates"][:]  # typically float32
+                    coords = pt["Coordinates"][:]
                     vels   = pt["Velocities"][:]
                     pids   = pt["ParticleIDs"][:]
+                    masses = pt["Masses"][:]
             except OSError as e:
-                # corrupted local file (shouldn't happen if downloads validated)
                 print(f"[warn] could not read {fp}: {e}")
                 continue
 
@@ -153,10 +162,12 @@ def write_dm_cutout_within_rmult(
             sel_coords = coords[m].astype(dtype_pos, copy=False)
             sel_vels   = vels[m].astype(dtype_vel, copy=False)
             sel_pids   = pids[m].astype(dtype_id,  copy=False)
+            sel_masses = masses[m].astype(dtype_mass, copy=False)
 
             _append_rows(dset_pos, sel_coords)
             _append_rows(dset_vel, sel_vels)
             _append_rows(dset_ids, sel_pids)
+            _append_rows(dset_mass, sel_masses)
             n_written += sel_coords.shape[0]
 
         fout.attrs["sim"] = sim
@@ -168,11 +179,11 @@ def write_dm_cutout_within_rmult(
         fout.attrs["rmult"] = rmult
         fout.attrs["rcut"] = rcut
         fout.attrs["boxsize"] = boxsize
-        fout.attrs["N_dm_selected"] = n_written
+        fout.attrs["N_gas_selected"] = n_written
         fout.attrs["n_chunks_read"] = n_chunks_read
         fout.attrs["n_chunks_missing_PartType0"] = n_chunks_missing_pt1
 
-    print(f"[done] wrote {outname}  N_dm_selected={n_written}")
+    print(f"[done] wrote {outname}  N_gas_selected={n_written}")
     return outname
 
 def main():

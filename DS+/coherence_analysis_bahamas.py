@@ -16,47 +16,41 @@ import h5py
 import TNG_DA
 import Full_Fourier_analysis_code
 
-parser = argparse.ArgumentParser(description="DS+ Virial Mass Script")
-parser.add_argument("cluster_ID", type=str, help="ID of the cluster to process")
+parser = argparse.ArgumentParser(description="BAHAMAS script")
+parser.add_argument("cluster_id", type=str, help="ID of the cluster to process")
+parser.add_argument("dm_model", type=str, help="The Dark Matter model to process")
 args = parser.parse_args()
-cluster_id = int(args.cluster_ID)
-print(f'Running Coherence Length code on Cluster {cluster_id}')
-
-### Download TNG gas particle data
-halo_cutout_url = f'http://www.tng-project.org/api/TNG300-1/snapshots/99/halos/{cluster_id}/cutout.hdf5' 
-params={'gas':'Coordinates,ParticleIDs,Velocities'}
-fName = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_gas_{cluster_id}'
-cutout = iapi.get(halo_cutout_url, params = params, fName = fName)
-
+cluster_id = args.cluster_id
+dm_folder = args.dm_model
+print(f'Running Coherence Length code on Cluster {cluster_id} in {dm_folder}')
 
 ### Import both the TNG gas and DM data
-dm_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_dm_{cluster_id}.hdf5'
+data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/" + dm_folder + "/GrNm_" + cluster_id + ".npz")
 
-with h5py.File(dm_fname, 'r') as f:
+boxsize = 400
+difpos = np.subtract(data['dm_pos'], data['CoP'])
+difpos = (difpos + 0.5 * boxsize) % boxsize - 0.5 * boxsize
 
-    dm_coordinates = f['PartType1']['Coordinates'][:]
-    dm_velocities = f['PartType1']['Velocities'][:]
+dm_coordinates = difpos # c Mpc / h 
+dm_velocities = data['dm_vel']
 
-gas_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_gas_{cluster_id}.hdf5'
+difpos = np.subtract(data['gas_pos'], data['CoP'])
+difpos = (difpos + 0.5 * boxsize) % boxsize - 0.5 * boxsize
 
-with h5py.File(gas_fname, 'r') as f:
-
-    gas_coordinates = f['PartType0']['Coordinates'][:]
-    gas_velocities = f['PartType0']['Velocities'][:]
+gas_coordinates = difpos
+gas_velocities = data['gas_vel']
 
 
 ### Import R_500 for the cluster
-TNG_data_path = '/home/habjan.e/TNG/Data/'
-sim='TNG300-1'
+h = data['h']
 
-baseUrl = 'http://www.tng-project.org/api/'
-simUrl = baseUrl+sim
-simdata = iapi.get(simUrl)
-h = simdata['hubble']
+r200 = data['R200'] / h
 
-r_500_clusters = iapi.getHaloField(field = 'Group_R_Crit500', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_R_Crit500', rewriteFile=0)
-r500 = r_500_clusters[cluster_id] / h
+### Conversion from comoving coordinates to proper coordinates and Mpc -> kpc
 
+dm_coordinates = (dm_coordinates * 10**3) / h
+
+gas_coordinates = (gas_coordinates * 10**3) / h
 
 ### Voxel Parameters
 ngrid_val = 512
@@ -67,15 +61,13 @@ pixel = L_val / ngrid_val
 data_mask = np.ones((ngrid_val, ngrid_val),dtype=float)
 
 ### Grid the DM particles
-dm_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = dm_coordinates) 
-mass_dm = np.zeros(dm_coords.shape[0]) + 5.9 * 10**7
-dm_cube = TNG_DA.deposit_cic_scalar(positions = dm_coords, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
+mass_dm = np.zeros(dm_coordinates.shape[0]) + 5.5 * 10**9
+dm_cube = TNG_DA.deposit_cic_scalar(positions = dm_coordinates, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
 
 
 ### Grid the Gas particles
-gas_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = gas_coordinates) 
-mass_gas = np.zeros(gas_coords.shape[0]) + 1.1 * 10**7
-gas_cube = TNG_DA.deposit_cic_scalar(positions = gas_coords, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
+mass_gas = np.zeros(gas_coordinates.shape[0]) + 1.09 * 10**9
+gas_cube = TNG_DA.deposit_cic_scalar(positions = gas_coordinates, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
 
 co_len = []
 co_len_err = []
@@ -135,7 +127,7 @@ for i in range(3):
         coh_upper,
         coh_lower,
         theta,
-        r500
+        r200
     )
 
     valid = (
@@ -148,13 +140,13 @@ for i in range(3):
 
     co_len.append(s_cr)
     co_len_err.append(sigma_scr)
-    theta_v_arr.append(theta[valid] / r500)
+    theta_v_arr.append(theta[valid] / r200)
     coh_v_arr.append(c_ratio[valid])
     err_l_v_arr.append(np.clip(err_l[valid], 0.0, 1.0))
     err_u_v_arr.append(np.clip(err_u[valid], 0.0, 1.0))
 
 
-save_path = '/projects/mccleary_group/habjan.e/TNG/Data/coherence_data/'
+save_path = '/projects/mccleary_group/habjan.e/TNG/Data/coherence_data/' + dm_folder + '/'
 
 np.save(save_path + f"coherence_length_{cluster_id}.npy", np.array(co_len))
 np.save(save_path + f"coherence_length_err_{cluster_id}.npy", np.array(co_len_err))
