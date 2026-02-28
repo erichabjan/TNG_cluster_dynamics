@@ -2,9 +2,9 @@
 #SBATCH --job-name=DS+_virial_cluster
 #SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/DS+_slurm_logs/DS+_virial_cluster_%A_%a.log
 #SBATCH --array=0-100%4
-#SBATCH --cpus-per-task=28
+#SBATCH --cpus-per-task=10
 #SBATCH --time=15:00:00
-#SBATCH --mem=100G
+#SBATCH --mem=20G
 #SBATCH --partition=short
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
@@ -12,7 +12,7 @@ export OMP_PROC_BIND=spread
 export OMP_PLACES=cores
 
 source ~/miniconda3/etc/profile.d/conda.sh
-source activate cl_dyn 
+conda activate cl_dyn
 
 cd /projects/mccleary_group/habjan.e/TNG/Data
 

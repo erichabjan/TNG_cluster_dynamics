@@ -55,7 +55,7 @@ simUrl = baseUrl+sim
 simdata = iapi.get(simUrl)
 h = simdata['hubble']
 
-r_200_clusters = iapi.getHaloField(field = 'Group_R_Crit200', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_R_Crit500', rewriteFile=0)
+r_200_clusters = iapi.getHaloField(field = 'Group_R_Crit200', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_R_Crit200', rewriteFile=0)
 r200 = r_200_clusters[cluster_id] / h
 
 
@@ -75,7 +75,7 @@ dm_cube = TNG_DA.deposit_cic_scalar(positions = dm_coords, L = L_val, ngrid = (n
 
 ### Grid the Gas particles
 gas_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = gas_coordinates) / h ### kpc
-mass_gas = (gas_masses 10**10) / h #np.zeros(gas_coords.shape[0]) + 1.1 * 10**7  ### solar masses
+mass_gas = (gas_masses * 10**10) / h #np.zeros(gas_coords.shape[0]) + 1.1 * 10**7  ### solar masses
 gas_cube = TNG_DA.deposit_cic_scalar(positions = gas_coords, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
 
 co_len = []

@@ -15,15 +15,15 @@ import TNG_DA
 ### Variables 
 
 parser = argparse.ArgumentParser(description="DS+ Virial Mass Script")
-parser.add_argument("cluster_ID", type=str, help="ID of the cluster to process")
+parser.add_argument("cluster_number", type=str, help="ID of the cluster to process")
 args = parser.parse_args()
-cluster_id = args.cluster_ID
-print('Processing Cluster ' + cluster_id + f' with {len(os.sched_getaffinity(0))} CPUs')
+cluster_number = args.cluster_number
+print('Processing Cluster ' + cluster_number + f' with {len(os.sched_getaffinity(0))} CPUs')
 
-cluster_number = int(cluster_id)
+cluster_number = int(cluster_number)
 bootstrap_mc = 0
-dsp_sims = 1000
-df_len = 1000
+dsp_sims = 10
+df_len = 10
 bootstrapping = False
 
 proj_arr = np.random.uniform(-1, 1, (df_len, 3))
@@ -44,6 +44,7 @@ if __name__ == "__main__":
 
 dsp_1_chunks, dsp_2_chunks, dsp_3_chunks = [], [], []
 sub_masses_chunks, vel_disp_chunks, Munari_masses_chunks = [], [], []
+theta_v_chunks, coh_v_chunks, err_l_v_chunks, err_u_v_chunks = [], [], [], []
 
 for res in results:
 
@@ -55,6 +56,10 @@ for res in results:
     sub_masses_chunks.append(np.array(res[1], dtype=object))
     vel_disp_chunks.append(np.array(res[2], dtype=object))
     Munari_masses_chunks.append(np.array(res[3], dtype=object))
+    theta_v_chunks.append(np.array(res[4], dtype=object))
+    coh_v_chunks.append(np.array(res[5], dtype=object))
+    err_l_v_chunks.append(np.array(res[6], dtype=object))
+    err_u_v_chunks.append(np.array(res[7], dtype=object))
 
 dsp_1 = np.array(dsp_1_chunks)
 dsp_2 = np.array(dsp_2_chunks)
@@ -62,7 +67,13 @@ dsp_3 = np.array(dsp_3_chunks, dtype=object)
 sub_masses = np.concatenate(sub_masses_chunks, axis=0)
 vel_disp = np.concatenate(vel_disp_chunks, axis=0)
 sub_Munari_masses = np.concatenate(Munari_masses_chunks, axis=0)
-df = pd.concat([res[4] for res in results], ignore_index=True)
+
+theta_v = np.concatenate(theta_v_chunks, axis=0)
+coh_v = np.concatenate(coh_v_chunks, axis=0)
+err_l_v = np.concatenate(err_l_v_chunks, axis=0)
+err_u_v = np.concatenate(err_u_v_chunks, axis=0)
+
+df = pd.concat([res[8] for res in results], ignore_index=True)
 
 save_path = "/projects/mccleary_group/habjan.e/TNG/Data/data_DS+_virial_results/"
 np.save(save_path + f"DS+_array_1_{cluster_number}.npy", dsp_1)
@@ -71,6 +82,10 @@ np.save(save_path + f"DS+_array_3_{cluster_number}.npy", dsp_3)
 np.save(save_path + f"subhalo_masses_{cluster_number}.npy", sub_masses)
 np.save(save_path + f"velocity_dispersion_{cluster_number}.npy", vel_disp)
 np.save(save_path + f"subhalo_Munari_masses_{cluster_number}.npy", sub_Munari_masses)
+np.save(save_path + f"theta_{cluster_number}.npy", np.array(theta_v))
+np.save(save_path + f"coh_{cluster_number}.npy", np.array(coh_v))
+np.save(save_path + f"coh_err_l_{cluster_number}.npy", np.array(err_l_v))
+np.save(save_path + f"coh_err_u_{cluster_number}.npy", np.array(err_u_v))
 df.to_csv(save_path + f"DS+_Virial_df_{cluster_number}.csv", index=False)
 
 print('Successfully Ran DS+_virial.py')

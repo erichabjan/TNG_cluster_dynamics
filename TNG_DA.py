@@ -7,6 +7,9 @@ import milaDS
 sys.path.append(dirc_path + 'TNG/Codes/TNG_workshop')
 import iapi_TNG as iapi
 
+sys.path.append("/home/habjan.e/TNG/Codes/Fourier_Analysis")
+import Full_Fourier_analysis_code
+
 import numpy as np
 import h5py #most TNG data is downloaded as hdf5 files
 import matplotlib.pyplot as plt
@@ -578,85 +581,6 @@ def compare_3d_2d_shape(positions_3d, velocities_3d, viewing_direction):
     return shape_3d, shape_2d, difference, T
 
 
-def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, bootstrap = False):
-
-    ### Grab TNG data
-    pos, vel, group, sub_masses_TNG, subhalo_type,h, halo_mass_TNG = get_cluster_props(cluster_number)
-
-    sub_mass_list, sub_veldisp_list, dsp_result_list, sub_Munari_list = [], [], [], []
-
-    shape_3d, T = shape_index_3d(positions = pos)
-
-    for i in range(proj_vector.shape[0]):
-
-        ### Project data to be observation-like
-        pos_2d, vel_los = project_3d_to_2d(pos, vel, viewing_direction=proj_vector[i])
-
-        ### Run DS+ and get back purity and completeness 
-        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims, Plim_P = 1, Ng_jump=1, cluster_name = str(proj_vector[i]))
-
-        ### Bootstrapping on purity and completeness
-        if bootstrap:
-            C_err, P_err = bootstrap_completeness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, 
-                                                         n_sims=dsp_sims, cluster_name = str(proj_vector[i]));
-        else: 
-            C_err, P_err = np.nan, np.nan
-
-        ### Find the DS+ Groups
-        dsp_groups = dsp_group_finder(dsp_output = dsp_results)
-
-        ### Find Virial Masses
-        halo_mass_Virial, sub_masses_Virial, sub_veldisp_Virial = virial_mass_velocity(position_2d = pos_2d, los_velocity = vel_los, groups = dsp_groups)
-        halo_Munari, sub_Munari = Mass_Munari(groups = dsp_groups, los_velcocity_arr = vel_los)
-
-        shape_2d = shape_index_2d(positions = pos, velocities = vel, proj_arr = proj_vector[i])
-        shape_diff = shape_2d - shape_3d
-
-        if i == 0:
-
-            df = pd.DataFrame({
-                "Cluster Index": [cluster_number],
-                "Projection x-Direction": [proj_vector[i,0]],
-                "Projection y-Direction": [proj_vector[i,1]],
-                "Projection z-Direction": [proj_vector[i,2]],
-                "Completeness": [C],
-                "Completeness Uncertainty": [C_err],
-                "Purity": [P],
-                "Purity Uncertainty": [P_err],
-                "Halo Mass Harmonic": [halo_mass_Virial],
-                "Halo Mass Munari": [halo_Munari],
-                "3D shape": [shape_3d],
-                "2D shape": [shape_2d],
-                "Shape difference": [shape_diff],
-                "Triaxiality": [T]
-            })
-        
-        else: 
-
-            df_new = pd.DataFrame({
-                "Cluster Index": [cluster_number],
-                "Projection x-Direction": [proj_vector[i,0]],
-                "Projection y-Direction": [proj_vector[i,1]],
-                "Projection z-Direction": [proj_vector[i,2]],
-                "Completeness": [C],
-                "Completeness Uncertainty": [C_err],
-                "Purity": [P],
-                "Purity Uncertainty": [P_err],
-                "Halo Mass Harmonic": [halo_mass_Virial],
-                "Halo Mass Munari": [halo_Munari],
-                "3D shape": [shape_3d],
-                "2D shape": [shape_2d],
-                "Shape difference": [shape_diff],
-                "Triaxiality": [T]
-            })
-
-            df = pd.concat([df, df_new], ignore_index=True)
-
-        sub_mass_list.append(sub_masses_Virial), sub_veldisp_list.append(sub_veldisp_Virial)
-        dsp_result_list.append(dsp_results), sub_Munari_list.append(sub_Munari)
-
-    return dsp_result_list, sub_mass_list, sub_veldisp_list, sub_Munari_list, df
-
 def rotate_to_viewing_frame(positions: np.ndarray,
                             velocities: np.ndarray,
                             viewing_direction: np.ndarray):
@@ -884,6 +808,182 @@ def _vdc(n, base=2):
         k, rem = divmod(k, base)
         v += rem / denom
     return v
+
+def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, bootstrap = False, ngrid_val = 512, L_val = 2150, n_bins = 30):
+
+    ### Grab TNG data
+    pos, vel, group, sub_masses_TNG, subhalo_type,h, halo_mass_TNG = get_cluster_props(cluster_number)
+
+    sub_mass_list, sub_veldisp_list, dsp_result_list, sub_Munari_list = [], [], [], []
+
+    shape_3d, T = shape_index_3d(positions = pos)
+
+    ### Coherence analysis code
+
+    dm_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/dm_within_5r200_{cluster_number}.hdf5'
+    with h5py.File(dm_fname, 'r') as f:
+        dm_coordinates = f['PartType1']['Coordinates'][:]
+        dm_velocities = f['PartType1']['Velocities'][:]
+
+    gas_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/gas_within_5r200_{cluster_number}.hdf5'
+    with h5py.File(gas_fname, 'r') as f:
+        gas_coordinates = f['PartType0']['Coordinates'][:]
+        gas_velocities = f['PartType0']['Velocities'][:]
+        gas_masses = f['PartType0']['Masses'][:]
+    
+    h = simdata['hubble']
+    r_200_clusters = iapi.getHaloField(field = 'Group_R_Crit200', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_R_Crit200', rewriteFile=0)
+    r200 = r_200_clusters[cluster_number] / h
+    pixel = L_val / ngrid_val
+
+    dm_coords = coord_cm_corr(cluster_ind = cluster_number, coordinates = dm_coordinates) / h
+    mass_dm = np.zeros(dm_coords.shape[0]) + 5.9 * 10**7
+
+    gas_coords = coord_cm_corr(cluster_ind = cluster_number, coordinates = gas_coordinates) / h
+    mass_gas = (gas_masses * 10**10) / h
+
+    theta_v_arr = []
+    coh_v_arr = []
+    err_l_v_arr = []
+    err_u_v_arr = []
+
+    for i in range(proj_vector.shape[0]):
+
+        ### Project data to be observation-like
+        pos_2d, vel_los = project_3d_to_2d(pos, vel, viewing_direction=proj_vector[i])
+
+        ### Run DS+ and get back purity and completeness 
+        dsp_results, C, P = run_dsp(pos_2d, vel_los, group, n_sims=dsp_sims, Plim_P = 1, Ng_jump=1, cluster_name = str(proj_vector[i]))
+
+        ### Bootstrapping on purity and completeness
+        if bootstrap:
+            C_err, P_err = bootstrap_completeness_purity(mc_in = bootstrap_mc, pos_in = pos_2d, vel_in = vel_los, in_groups = group, 
+                                                         n_sims=dsp_sims, cluster_name = str(proj_vector[i]));
+        else: 
+            C_err, P_err = np.nan, np.nan
+
+        ### Find the DS+ Groups
+        dsp_groups = dsp_group_finder(dsp_output = dsp_results)
+
+        ### Find Virial Masses
+        halo_mass_Virial, sub_masses_Virial, sub_veldisp_Virial = virial_mass_velocity(position_2d = pos_2d, los_velocity = vel_los, groups = dsp_groups)
+        halo_Munari, sub_Munari = Mass_Munari(groups = dsp_groups, los_velcocity_arr = vel_los)
+
+        shape_2d = shape_index_2d(positions = pos, velocities = vel, proj_arr = proj_vector[i])
+        shape_diff = shape_2d - shape_3d
+
+        ### Coherence analysis for projection
+        data_mask = np.ones((ngrid_val, ngrid_val),dtype=float)
+        dm_coords_ro, _ = rotate_to_viewing_frame(positions = dm_coords, velocities = np.empty_like(dm_coords), viewing_direction = proj_vector[i])
+        dm_cube = deposit_cic_scalar(positions = dm_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
+        dm_2d = np.nansum(dm_cube, axis = 2)
+
+        gas_coords_ro, _ = rotate_to_viewing_frame(positions = gas_coords, velocities = np.empty_like(gas_coords), viewing_direction = proj_vector[i])
+        gas_cube = deposit_cic_scalar(positions = gas_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
+        gas_2d = np.nansum(gas_cube, axis = 2)
+
+        ### Angular binning
+        tet_1grid = Full_Fourier_analysis_code.make_theta_binning(
+            dm_2d,        
+            pixel_size=pixel,
+            nbins=n_bins
+            )
+        
+        ### Power spectra
+        sample_size= ngrid_val * ngrid_val
+
+        #Fluctuation maps
+        image_mass = np.nan_to_num(dm_2d, nan=0.0)
+        image_gas = np.nan_to_num(gas_2d, nan=0.0)
+        average_mass = np.average(image_mass)
+        average_gas = np.average(image_gas)   
+        fluc_mass = (image_mass-average_mass)    
+        fluc_gas = (image_gas-average_gas)
+
+        windowed_mass = Full_Fourier_analysis_code.hann_window_power_spectrum(fluc_mass)
+        windowed_gas = Full_Fourier_analysis_code.hann_window_power_spectrum(fluc_gas)
+
+        grad=0
+        unit=0
+
+        k_p, pairs, amp, power, sig_p = Full_Fourier_analysis_code.auto_power_obs(windowed_mass, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
+        k_p2, pairs2, amp2, power2, sig_p2 = Full_Fourier_analysis_code.auto_power_obs(windowed_gas, data_mask, tet_1grid, pixel, unit, grad, outfile = None, writefits = None )
+
+        power_cross, sig_p_cross = Full_Fourier_analysis_code.cross_power(windowed_mass, data_mask, amp, amp2, tet_1grid, pixel, unit)
+        c_ratio, err_l, err_u = Full_Fourier_analysis_code.full_coherence(power_cross, sig_p_cross, power, sig_p, power2, sig_p2, sample_size)
+
+        theta = 1.0 / k_p
+        coh_lower = err_l
+        coh_upper = err_u
+
+        s_cr, sigma_scr, theta_cr, sigma_theta = Full_Fourier_analysis_code.coherence_length_single(
+            c_ratio,
+            coh_upper,
+            coh_lower,
+            theta,
+            r200
+            )
+        
+        valid = (
+            np.isfinite(theta) &
+            np.isfinite(c_ratio) &
+            np.isfinite(err_l) &
+            np.isfinite(err_u) &
+            (c_ratio >= 0)
+            )
+
+        if i == 0:
+
+            df = pd.DataFrame({
+                "Cluster Index": [cluster_number],
+                "Projection x-Direction": [proj_vector[i,0]],
+                "Projection y-Direction": [proj_vector[i,1]],
+                "Projection z-Direction": [proj_vector[i,2]],
+                "Completeness": [C],
+                "Completeness Uncertainty": [C_err],
+                "Purity": [P],
+                "Purity Uncertainty": [P_err],
+                "Halo Mass Harmonic": [halo_mass_Virial],
+                "Halo Mass Munari": [halo_Munari],
+                "3D shape": [shape_3d],
+                "2D shape": [shape_2d],
+                "Shape difference": [shape_diff],
+                "Triaxiality": [T],
+                "Coherence Length": [s_cr],
+                "Coherence Length Uncertainty": [sigma_scr]
+            })
+        
+        else: 
+
+            df_new = pd.DataFrame({
+                "Cluster Index": [cluster_number],
+                "Projection x-Direction": [proj_vector[i,0]],
+                "Projection y-Direction": [proj_vector[i,1]],
+                "Projection z-Direction": [proj_vector[i,2]],
+                "Completeness": [C],
+                "Completeness Uncertainty": [C_err],
+                "Purity": [P],
+                "Purity Uncertainty": [P_err],
+                "Halo Mass Harmonic": [halo_mass_Virial],
+                "Halo Mass Munari": [halo_Munari],
+                "3D shape": [shape_3d],
+                "2D shape": [shape_2d],
+                "Shape difference": [shape_diff],
+                "Triaxiality": [T],
+                "Coherence Length": [s_cr],
+                "Coherence Length Uncertainty": [sigma_scr]
+            })
+
+            df = pd.concat([df, df_new], ignore_index=True)
+
+        sub_mass_list.append(sub_masses_Virial), sub_veldisp_list.append(sub_veldisp_Virial)
+        dsp_result_list.append(dsp_results), sub_Munari_list.append(sub_Munari)
+        theta_v_arr.append(theta[valid] / r200)
+        coh_v_arr.append(c_ratio[valid])
+        err_l_v_arr.append(np.clip(err_l[valid], 0.0, 1.0))
+        err_u_v_arr.append(np.clip(err_u[valid], 0.0, 1.0))
+
+    return dsp_result_list, sub_mass_list, sub_veldisp_list, sub_Munari_list, theta_v_arr, coh_v_arr, err_l_v_arr, err_u_v_arr, df
 
 def bright_distinct_colors(n=100, s=0.95, v_hi=0.95, v_lo=0.80, method="vdc", h0=0.0):
     """
