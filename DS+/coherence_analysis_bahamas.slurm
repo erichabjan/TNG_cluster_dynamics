@@ -3,7 +3,7 @@
 #SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/DS+_slurm_logs/coherence_analysis_%A_%a.log
 #SBATCH --array=0-499%28
 #SBATCH --cpus-per-task=1
-#SBATCH --time=00:15:00
+#SBATCH --time=14:00:00
 #SBATCH --mem=10G
 #SBATCH --partition=short
 

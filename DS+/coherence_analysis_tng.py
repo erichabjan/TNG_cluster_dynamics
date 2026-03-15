@@ -22,12 +22,6 @@ args = parser.parse_args()
 cluster_id = int(args.cluster_ID)
 print(f'Running Coherence Length code on Cluster {cluster_id}')
 
-### Download TNG gas particle data
-#halo_cutout_url = f'http://www.tng-project.org/api/TNG300-1/snapshots/99/halos/{cluster_id}/cutout.hdf5' 
-#params={'gas':'Coordinates,ParticleIDs,Velocities'}
-#fName = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/halo_cutouts_gas_{cluster_id}'
-#cutout = iapi.get(halo_cutout_url, params = params, fName = fName)
-
 
 ### Import both the TNG gas and DM data
 dm_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/dm_within_5r200_{cluster_id}.hdf5'
@@ -70,13 +64,11 @@ data_mask = np.ones((ngrid_val, ngrid_val),dtype=float)
 ### Grid the DM particles
 dm_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = dm_coordinates) / h ### kpc
 mass_dm = np.zeros(dm_coords.shape[0]) + 5.9 * 10**7 ### solar masses
-dm_cube = TNG_DA.deposit_cic_scalar(positions = dm_coords, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
 
 
 ### Grid the Gas particles
 gas_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = gas_coordinates) / h ### kpc
 mass_gas = (gas_masses * 10**10) / h #np.zeros(gas_coords.shape[0]) + 1.1 * 10**7  ### solar masses
-gas_cube = TNG_DA.deposit_cic_scalar(positions = gas_coords, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
 
 co_len = []
 co_len_err = []
@@ -85,10 +77,18 @@ coh_v_arr = []
 err_l_v_arr = []
 err_u_v_arr = []
 
-for i in range(3):
+projections = 10**3
+proj_vector = np.random.uniform(-1, 1, (projections, 3))
 
-    dm_2d = np.nansum(dm_cube, axis = i)
-    gas_2d = np.nansum(gas_cube, axis = i)
+for i in range(projections):
+
+    dm_coords_ro, _ = TNG_DA.rotate_to_viewing_frame(positions = dm_coords, velocities = np.empty_like(dm_coords), viewing_direction = proj_vector[i])
+    dm_cube = TNG_DA.deposit_cic_scalar(positions = dm_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
+    dm_2d = np.nansum(dm_cube, axis = 2)
+
+    gas_coords_ro, _ = TNG_DA.rotate_to_viewing_frame(positions = gas_coords, velocities = np.empty_like(gas_coords), viewing_direction = proj_vector[i])
+    gas_cube = TNG_DA.deposit_cic_scalar(positions = gas_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
+    gas_2d = np.nansum(gas_cube, axis = 2)
 
 
     ### Angular binning
@@ -122,7 +122,7 @@ for i in range(3):
 
     #COMPUTE POWER SPECTRA AND COHERENCE
     k_p, pairs, amp, power, sig_p = Full_Fourier_analysis_code.auto_power_obs(windowed_mass, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
-    k_p2, pairs2, amp2, power2, sig_p2 = Full_Fourier_analysis_code.auto_power_obs(windowed_gas, data_mask, tet_1grid, pixel, unit, grad, outfile = None, writefits = None )
+    k_p2, pairs2, amp2, power2, sig_p2 = Full_Fourier_analysis_code.auto_power_obs(windowed_gas, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
 
     power_cross, sig_p_cross = Full_Fourier_analysis_code.cross_power(windowed_mass, data_mask, amp, amp2, tet_1grid, pixel, unit)
     c_ratio, err_l, err_u = Full_Fourier_analysis_code.full_coherence(power_cross, sig_p_cross, power, sig_p, power2, sig_p2, sample_size)
@@ -131,14 +131,6 @@ for i in range(3):
     coh_lower = err_l
     coh_upper = err_u
 
-    s_cr, sigma_scr, theta_cr, sigma_theta = Full_Fourier_analysis_code.coherence_length_single(
-        c_ratio,
-        coh_upper,
-        coh_lower,
-        theta,
-        r200
-    )
-
     valid = (
         np.isfinite(theta) &
         np.isfinite(c_ratio) &
@@ -146,6 +138,14 @@ for i in range(3):
         np.isfinite(err_u) &
         (c_ratio >= 0)
         )
+
+    s_cr, sigma_scr, theta_cr, sigma_theta = Full_Fourier_analysis_code.coherence_length_single(
+        c_ratio[valid],
+        coh_upper[valid],
+        coh_lower[valid],
+        theta[valid],
+        r200
+    )
 
     co_len.append(s_cr)
     co_len_err.append(sigma_scr)
@@ -163,5 +163,6 @@ np.save(save_path + f"theta_{cluster_id}.npy", np.array(theta_v_arr))
 np.save(save_path + f"coh_{cluster_id}.npy", np.array(coh_v_arr))
 np.save(save_path + f"coh_err_l_{cluster_id}.npy", np.array(err_l_v_arr))
 np.save(save_path + f"coh_err_u_{cluster_id}.npy", np.array(err_u_v_arr))
+np.save(save_path + f"projection_array_{cluster_id}.npy", proj_vector)
 
 print('Successfully Ran coherence_analysis.py')

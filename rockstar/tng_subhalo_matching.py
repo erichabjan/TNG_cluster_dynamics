@@ -51,15 +51,14 @@ offsets = np.array([
 ])
 
 com_ids = []
+num_com_parts = 50
 
 for i in range(sub_lens.shape[0]):
 
     try:
-        com_ids.append(ids[offsets[i]: offsets[i] + sub_lens[i, 1]][0])
+        com_ids.append(ids[offsets[i]: offsets[i] + sub_lens[i, 1]][:num_com_parts])
     except:
         com_ids.append(np.nan)
-
-com_ids = np.array(com_ids)
 
 # Use the subfind-subhalo COM IDs to match to rockstar-subhalos 
 rockstar_output = '/projects/mccleary_group/habjan.e/TNG/Data/rockstar_output/tng_rockstar_output'
@@ -71,10 +70,12 @@ mem_halo_id = np.array(members['halo_id'])
 
 subhalo_ids = []
 
-for i in range(com_ids.shape[0]):
+for i in range(len(com_ids)):
     
     try:
-        subhalo_ids.append(mem_halo_id[com_ids[i] == member_id][0])
+        sub_membership_arr = mem_halo_id[np.isin(member_id, com_ids[i])]
+
+        subhalo_ids.append(statistics.mode(sub_membership_arr))
     except:
         subhalo_ids.append(np.nan)
 

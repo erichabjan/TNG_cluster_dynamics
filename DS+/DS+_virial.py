@@ -22,8 +22,8 @@ print('Processing Cluster ' + cluster_number + f' with {len(os.sched_getaffinity
 
 cluster_number = int(cluster_number)
 bootstrap_mc = 0
-dsp_sims = 10
-df_len = 10
+dsp_sims = 10**3
+df_len = 10**3
 bootstrapping = False
 
 proj_arr = np.random.uniform(-1, 1, (df_len, 3))

@@ -3,7 +3,7 @@
 #SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/DS+_slurm_logs/DS+_virial_cluster_%A_%a.log
 #SBATCH --array=0-100%4
 #SBATCH --cpus-per-task=10
-#SBATCH --time=15:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=20G
 #SBATCH --partition=short
 

@@ -48,7 +48,7 @@ def get_cluster_props(cluster_ind):
 
     ### Make a cluster mass cut, now we have galaxy cluters
     quan_val = np.log10(5 * 10**14)
-    Group_num = iapi.getSubhaloField('SubhaloGrNr', simulation=sim, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloGrNr', rewriteFile=0) # Import array that identifies the halo each subhalo belongs to 
+    Group_num = iapi.getSubhaloField('SubhaloGrNr', simulation=sim, snapshot=99, fileName=TNG_data_path+'TNG_data/'+sim+'_SubhaloGrNr', rewriteFile=0) # Import array that identifies the halo each subhalo belongs to 
     h = simdata['hubble']
     halo_mass = GroupMass[cluster_ind] * 10**10 / h
 
@@ -290,6 +290,9 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 1, Ng_jump=
     for group in groups:
 
         group_ind = np.where(group == in_groups)[0]
+
+        if np.isnan(group):
+            group_ind = np.where(np.isnan(groups))[0]
             
         if len(group_ind) > 1 and len(group_ind) < int(np.sqrt(len(velocity))):
             ### 1 represents a subhalo that belongs to a substructure
@@ -336,6 +339,9 @@ def bootstrap_complteeness_purity(mc_in, pos_in, vel_in, in_groups, n_sims=1000,
     for group in groups:
 
         group_ind = np.where(group == in_groups)[0]
+
+        if np.isnan(group):
+            group_ind = np.where(np.isnan(groups))[0]
             
         if len(group_ind) > 1 and len(group_ind) < int(np.sqrt(len(velocity))):
             ### 1 represents a subhalo that belongs to a substructure
@@ -907,7 +913,7 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, boo
         unit=0
 
         k_p, pairs, amp, power, sig_p = Full_Fourier_analysis_code.auto_power_obs(windowed_mass, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
-        k_p2, pairs2, amp2, power2, sig_p2 = Full_Fourier_analysis_code.auto_power_obs(windowed_gas, data_mask, tet_1grid, pixel, unit, grad, outfile = None, writefits = None )
+        k_p2, pairs2, amp2, power2, sig_p2 = Full_Fourier_analysis_code.auto_power_obs(windowed_gas, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
 
         power_cross, sig_p_cross = Full_Fourier_analysis_code.cross_power(windowed_mass, data_mask, amp, amp2, tet_1grid, pixel, unit)
         c_ratio, err_l, err_u = Full_Fourier_analysis_code.full_coherence(power_cross, sig_p_cross, power, sig_p, power2, sig_p2, sample_size)
@@ -916,20 +922,20 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, boo
         coh_lower = err_l
         coh_upper = err_u
 
-        s_cr, sigma_scr, theta_cr, sigma_theta = Full_Fourier_analysis_code.coherence_length_single(
-            c_ratio,
-            coh_upper,
-            coh_lower,
-            theta,
-            r200
-            )
-        
         valid = (
             np.isfinite(theta) &
             np.isfinite(c_ratio) &
             np.isfinite(err_l) &
             np.isfinite(err_u) &
             (c_ratio >= 0)
+            )
+
+        s_cr, sigma_scr, theta_cr, sigma_theta = Full_Fourier_analysis_code.coherence_length_single(
+            c_ratio[valid],
+            coh_upper[valid],
+            coh_lower[valid],
+            theta[valid],
+            r200
             )
 
         if i == 0:
