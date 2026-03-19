@@ -294,7 +294,7 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 1, Ng_jump=
         if np.isnan(group):
             group_ind = np.where(np.isnan(groups))[0]
             
-        if len(group_ind) > 1 and len(group_ind) < int(np.sqrt(len(velocity))):
+        if len(group_ind) >= 3 and len(group_ind) < int(np.sqrt(len(velocity))):
             ### 1 represents a subhalo that belongs to a substructure
             tng_g[group_ind] = 1
     
@@ -309,21 +309,25 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 1, Ng_jump=
 
         group_dsp_arr = np.where(sub_grnu_arr == sub_grnu[i])[0]
 
-        if sub_count[i] > 1 and sub_count[i] < int(np.sqrt(len(velocity))):
+        if sub_count[i] >= 3 and sub_count[i] < int(np.sqrt(len(velocity))):
             dsp_g[group_dsp_arr] = 1
     
         else:
             dsp_g[group_dsp_arr] = 2
 
-    try:
-        NDSp = len(np.where(dsp_g == 1)[0])
-        Nreal = len(np.where(tng_g == 1)[0])
-        NDSp_real = len(np.where((tng_g == 1) & (dsp_g == 1))[0])
-        C = NDSp_real / Nreal
-        P = NDSp_real / NDSp
-    except:
+    NDSp = len(np.where(dsp_g == 1)[0])
+    Nreal = len(np.where(tng_g == 1)[0])
+    NDSp_real = len(np.where((tng_g == 1) & (dsp_g == 1))[0])
+
+    if Nreal == 0:
         C = np.nan
+    else:
+        C = NDSp_real / Nreal
+    
+    if NDSp == 0:
         P = np.nan
+    else:
+        P = NDSp_real / NDSp
 
     return dsp_results, C, P
 
@@ -826,32 +830,32 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, boo
 
     ### Coherence analysis code
 
-    dm_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/dm_within_5r200_{cluster_number}.hdf5'
-    with h5py.File(dm_fname, 'r') as f:
-        dm_coordinates = f['PartType1']['Coordinates'][:]
-        dm_velocities = f['PartType1']['Velocities'][:]
+    #dm_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/dm_within_5r200_{cluster_number}.hdf5'
+    #with h5py.File(dm_fname, 'r') as f:
+     #   dm_coordinates = f['PartType1']['Coordinates'][:]
+      #  dm_velocities = f['PartType1']['Velocities'][:]
 
-    gas_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/gas_within_5r200_{cluster_number}.hdf5'
-    with h5py.File(gas_fname, 'r') as f:
-        gas_coordinates = f['PartType0']['Coordinates'][:]
-        gas_velocities = f['PartType0']['Velocities'][:]
-        gas_masses = f['PartType0']['Masses'][:]
+    #gas_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/gas_within_5r200_{cluster_number}.hdf5'
+    #with h5py.File(gas_fname, 'r') as f:
+     #   gas_coordinates = f['PartType0']['Coordinates'][:]
+      #  gas_velocities = f['PartType0']['Velocities'][:]
+       # gas_masses = f['PartType0']['Masses'][:]
     
-    h = simdata['hubble']
-    r_200_clusters = iapi.getHaloField(field = 'Group_R_Crit200', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_R_Crit200', rewriteFile=0)
-    r200 = r_200_clusters[cluster_number] / h
-    pixel = L_val / ngrid_val
+    #h = simdata['hubble']
+    #r_200_clusters = iapi.getHaloField(field = 'Group_R_Crit200', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_R_Crit200', rewriteFile=0)
+    #r200 = r_200_clusters[cluster_number] / h
+    #pixel = L_val / ngrid_val
 
-    dm_coords = coord_cm_corr(cluster_ind = cluster_number, coordinates = dm_coordinates) / h
-    mass_dm = np.zeros(dm_coords.shape[0]) + 5.9 * 10**7
+    #dm_coords = coord_cm_corr(cluster_ind = cluster_number, coordinates = dm_coordinates) / h
+    #mass_dm = np.zeros(dm_coords.shape[0]) + 5.9 * 10**7
 
-    gas_coords = coord_cm_corr(cluster_ind = cluster_number, coordinates = gas_coordinates) / h
-    mass_gas = (gas_masses * 10**10) / h
+    #gas_coords = coord_cm_corr(cluster_ind = cluster_number, coordinates = gas_coordinates) / h
+    #mass_gas = (gas_masses * 10**10) / h
 
-    theta_v_arr = []
-    coh_v_arr = []
-    err_l_v_arr = []
-    err_u_v_arr = []
+    #theta_v_arr = []
+    #coh_v_arr = []
+    #err_l_v_arr = []
+    #err_u_v_arr = []
 
     for i in range(proj_vector.shape[0]):
 
@@ -879,64 +883,64 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, boo
         shape_diff = shape_2d - shape_3d
 
         ### Coherence analysis for projection
-        data_mask = np.ones((ngrid_val, ngrid_val),dtype=float)
-        dm_coords_ro, _ = rotate_to_viewing_frame(positions = dm_coords, velocities = np.empty_like(dm_coords), viewing_direction = proj_vector[i])
-        dm_cube = deposit_cic_scalar(positions = dm_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
-        dm_2d = np.nansum(dm_cube, axis = 2)
+        #data_mask = np.ones((ngrid_val, ngrid_val),dtype=float)
+        #dm_coords_ro, _ = rotate_to_viewing_frame(positions = dm_coords, velocities = np.empty_like(dm_coords), viewing_direction = proj_vector[i])
+        #dm_cube = deposit_cic_scalar(positions = dm_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
+        #dm_2d = np.nansum(dm_cube, axis = 2)
 
-        gas_coords_ro, _ = rotate_to_viewing_frame(positions = gas_coords, velocities = np.empty_like(gas_coords), viewing_direction = proj_vector[i])
-        gas_cube = deposit_cic_scalar(positions = gas_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
-        gas_2d = np.nansum(gas_cube, axis = 2)
+        #gas_coords_ro, _ = rotate_to_viewing_frame(positions = gas_coords, velocities = np.empty_like(gas_coords), viewing_direction = proj_vector[i])
+        #gas_cube = deposit_cic_scalar(positions = gas_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
+        #gas_2d = np.nansum(gas_cube, axis = 2)
 
         ### Angular binning
-        tet_1grid = Full_Fourier_analysis_code.make_theta_binning(
-            dm_2d,        
-            pixel_size=pixel,
-            nbins=n_bins
-            )
+        #tet_1grid = Full_Fourier_analysis_code.make_theta_binning(
+         #   dm_2d,        
+          #  pixel_size=pixel,
+           # nbins=n_bins
+            #)
         
         ### Power spectra
-        sample_size= ngrid_val * ngrid_val
+        #sample_size= ngrid_val * ngrid_val
 
         #Fluctuation maps
-        image_mass = np.nan_to_num(dm_2d, nan=0.0)
-        image_gas = np.nan_to_num(gas_2d, nan=0.0)
-        average_mass = np.average(image_mass)
-        average_gas = np.average(image_gas)   
-        fluc_mass = (image_mass-average_mass)    
-        fluc_gas = (image_gas-average_gas)
+        #image_mass = np.nan_to_num(dm_2d, nan=0.0)
+        #image_gas = np.nan_to_num(gas_2d, nan=0.0)
+        #average_mass = np.average(image_mass)
+        #average_gas = np.average(image_gas)   
+        #fluc_mass = (image_mass-average_mass)    
+        #fluc_gas = (image_gas-average_gas)
 
-        windowed_mass = Full_Fourier_analysis_code.hann_window_power_spectrum(fluc_mass)
-        windowed_gas = Full_Fourier_analysis_code.hann_window_power_spectrum(fluc_gas)
+        #windowed_mass = Full_Fourier_analysis_code.hann_window_power_spectrum(fluc_mass)
+        #windowed_gas = Full_Fourier_analysis_code.hann_window_power_spectrum(fluc_gas)
 
-        grad=0
-        unit=0
+        #grad=0
+        #unit=0
 
-        k_p, pairs, amp, power, sig_p = Full_Fourier_analysis_code.auto_power_obs(windowed_mass, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
-        k_p2, pairs2, amp2, power2, sig_p2 = Full_Fourier_analysis_code.auto_power_obs(windowed_gas, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
+        #k_p, pairs, amp, power, sig_p = Full_Fourier_analysis_code.auto_power_obs(windowed_mass, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
+        #k_p2, pairs2, amp2, power2, sig_p2 = Full_Fourier_analysis_code.auto_power_obs(windowed_gas, data_mask, tet_1grid, pixel, grad, unit, outfile = None, writefits = None )
 
-        power_cross, sig_p_cross = Full_Fourier_analysis_code.cross_power(windowed_mass, data_mask, amp, amp2, tet_1grid, pixel, unit)
-        c_ratio, err_l, err_u = Full_Fourier_analysis_code.full_coherence(power_cross, sig_p_cross, power, sig_p, power2, sig_p2, sample_size)
+        #power_cross, sig_p_cross = Full_Fourier_analysis_code.cross_power(windowed_mass, data_mask, amp, amp2, tet_1grid, pixel, unit)
+        #c_ratio, err_l, err_u = Full_Fourier_analysis_code.full_coherence(power_cross, sig_p_cross, power, sig_p, power2, sig_p2, sample_size)
 
-        theta = 1.0 / k_p
-        coh_lower = err_l
-        coh_upper = err_u
+        #theta = 1.0 / k_p
+        #coh_lower = err_l
+        #coh_upper = err_u
 
-        valid = (
-            np.isfinite(theta) &
-            np.isfinite(c_ratio) &
-            np.isfinite(err_l) &
-            np.isfinite(err_u) &
-            (c_ratio >= 0)
-            )
+        #valid = (
+         #   np.isfinite(theta) &
+          #  np.isfinite(c_ratio) &
+           # np.isfinite(err_l) &
+         #   np.isfinite(err_u) &
+          #  (c_ratio >= 0)
+           # )
 
-        s_cr, sigma_scr, theta_cr, sigma_theta = Full_Fourier_analysis_code.coherence_length_single(
-            c_ratio[valid],
-            coh_upper[valid],
-            coh_lower[valid],
-            theta[valid],
-            r200
-            )
+        #s_cr, sigma_scr, theta_cr, sigma_theta = Full_Fourier_analysis_code.coherence_length_single(
+         #   c_ratio[valid],
+          #  coh_upper[valid],
+           # coh_lower[valid],
+         #   theta[valid],
+         #   r200
+          #  )
 
         if i == 0:
 
@@ -955,8 +959,8 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, boo
                 "2D shape": [shape_2d],
                 "Shape difference": [shape_diff],
                 "Triaxiality": [T],
-                "Coherence Length": [s_cr],
-                "Coherence Length Uncertainty": [sigma_scr]
+         #       "Coherence Length": [s_cr],
+          #      "Coherence Length Uncertainty": [sigma_scr]
             })
         
         else: 
@@ -976,20 +980,20 @@ def DSP_Virial_analysis(cluster_number, proj_vector, dsp_sims, bootstrap_mc, boo
                 "2D shape": [shape_2d],
                 "Shape difference": [shape_diff],
                 "Triaxiality": [T],
-                "Coherence Length": [s_cr],
-                "Coherence Length Uncertainty": [sigma_scr]
+             #   "Coherence Length": [s_cr],
+              #  "Coherence Length Uncertainty": [sigma_scr]
             })
 
             df = pd.concat([df, df_new], ignore_index=True)
 
         sub_mass_list.append(sub_masses_Virial), sub_veldisp_list.append(sub_veldisp_Virial)
         dsp_result_list.append(dsp_results), sub_Munari_list.append(sub_Munari)
-        theta_v_arr.append(theta[valid] / r200)
-        coh_v_arr.append(c_ratio[valid])
-        err_l_v_arr.append(np.clip(err_l[valid], 0.0, 1.0))
-        err_u_v_arr.append(np.clip(err_u[valid], 0.0, 1.0))
+      #  theta_v_arr.append(theta[valid] / r200)
+      #  coh_v_arr.append(c_ratio[valid])
+       # err_l_v_arr.append(np.clip(err_l[valid], 0.0, 1.0))
+        #err_u_v_arr.append(np.clip(err_u[valid], 0.0, 1.0))
 
-    return dsp_result_list, sub_mass_list, sub_veldisp_list, sub_Munari_list, theta_v_arr, coh_v_arr, err_l_v_arr, err_u_v_arr, df
+    return dsp_result_list, sub_mass_list, sub_veldisp_list, sub_Munari_list, df #, theta_v_arr, coh_v_arr, err_l_v_arr, err_u_v_arr, df
 
 def bright_distinct_colors(n=100, s=0.95, v_hi=0.95, v_lo=0.80, method="vdc", h0=0.0):
     """

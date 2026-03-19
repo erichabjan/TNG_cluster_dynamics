@@ -77,6 +77,18 @@ coh_v_arr = []
 err_l_v_arr = []
 err_u_v_arr = []
 
+theta_mass_list = []
+P_mass_list = []
+P_mass_sig_list  = []
+
+theta_gas_list = []
+P_gas_list = []
+P_gas_sig_list  = []
+
+theta_cross_list = []
+P_cross_list = []
+P_cross_sig_list = []
+
 projections = 10**3
 proj_vector = np.random.uniform(-1, 1, (projections, 3))
 
@@ -146,6 +158,40 @@ for i in range(projections):
         theta[valid],
         r200
     )
+    
+    valid_mass = (
+        np.isfinite(theta) &
+        np.isfinite(power) &
+        np.isfinite(sig_p) &
+        (power > 0)
+    )
+
+    theta_mass = theta[valid_mass]
+    P_mass = power[valid_mass]
+    P_mass_sig  = np.maximum(sig_p[valid_mass], 1e-30)
+
+    valid_gas = (
+        np.isfinite(theta) &
+        np.isfinite(power2) &
+        np.isfinite(sig_p2) &
+        (power2 > 0)
+    )
+
+    theta_gas = theta[valid_gas]
+    P_gas = power2[valid_gas]
+    P_gas_sig  = np.maximum(sig_p2[valid_gas], 1e-30)
+
+
+    valid_cross = (
+        np.isfinite(theta) &
+        np.isfinite(power_cross) &
+        np.isfinite(sig_p_cross) &
+        (power2 > 0)
+    )
+
+    theta_cross = theta[valid_cross]
+    P_cross     = power_cross[valid_cross]
+    P_cross_sig  = np.maximum(sig_p_cross[valid_cross], 1e-30)
 
     co_len.append(s_cr)
     co_len_err.append(sigma_scr)
@@ -153,6 +199,18 @@ for i in range(projections):
     coh_v_arr.append(c_ratio[valid])
     err_l_v_arr.append(np.clip(err_l[valid], 0.0, 1.0))
     err_u_v_arr.append(np.clip(err_u[valid], 0.0, 1.0))
+
+    theta_mass_list.append(theta_mass)
+    P_mass_list.append(P_mass)
+    P_mass_sig_list.append(P_mass_sig)
+
+    theta_gas_list.append(theta_gas)
+    P_gas_list.append(P_gas)
+    P_gas_sig_list.append(P_gas_sig)
+
+    theta_cross_list.append(theta_cross)
+    P_cross_list.append(P_cross)
+    P_cross_sig_list.append(P_cross_sig)
 
 
 save_path = '/projects/mccleary_group/habjan.e/TNG/Data/coherence_data/TNG/'
@@ -164,5 +222,17 @@ np.save(save_path + f"coh_{cluster_id}.npy", np.array(coh_v_arr))
 np.save(save_path + f"coh_err_l_{cluster_id}.npy", np.array(err_l_v_arr))
 np.save(save_path + f"coh_err_u_{cluster_id}.npy", np.array(err_u_v_arr))
 np.save(save_path + f"projection_array_{cluster_id}.npy", proj_vector)
+
+np.save(save_path + f"theta_mass_{cluster_id}.npy", np.array(theta_mass_list))
+np.save(save_path + f"power_mass_{cluster_id}.npy", np.array(P_mass_list))
+np.save(save_path + f"power_mass_error_{cluster_id}.npy", np.array(P_mass_sig_list))
+
+np.save(save_path + f"theta_gas_{cluster_id}.npy", np.array(theta_gas_list))
+np.save(save_path + f"power_gas_{cluster_id}.npy", np.array(P_gas_list))
+np.save(save_path + f"power_gas_error_{cluster_id}.npy", np.array(P_gas_sig_list))
+
+np.save(save_path + f"theta_cross_{cluster_id}.npy", np.array(theta_cross_list))
+np.save(save_path + f"power_cross_{cluster_id}.npy", np.array(P_cross_list))
+np.save(save_path + f"power_cross_error_{cluster_id}.npy", np.array(P_cross_sig_list))
 
 print('Successfully Ran coherence_analysis.py')

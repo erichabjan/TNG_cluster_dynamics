@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from IPython.display import display, Markdown
+import statistics
 
 sys.path.append(dirc_path + 'TNG/Codes/TNG_workshop')
 import iapi_TNG as iapi
@@ -53,12 +54,7 @@ offsets = np.array([
 com_ids = []
 num_com_parts = 50
 
-for i in range(sub_lens.shape[0]):
-
-    try:
-        com_ids.append(ids[offsets[i]: offsets[i] + sub_lens[i, 1]][:num_com_parts])
-    except:
-        com_ids.append(np.nan)
+com_ids = [ids[offsets[i]: offsets[i] + sub_lens[i, 1]][:num_com_parts] for i in range(sub_lens.shape[0])] 
 
 # Use the subfind-subhalo COM IDs to match to rockstar-subhalos 
 rockstar_output = '/projects/mccleary_group/habjan.e/TNG/Data/rockstar_output/tng_rockstar_output'
@@ -71,13 +67,16 @@ mem_halo_id = np.array(members['halo_id'])
 subhalo_ids = []
 
 for i in range(len(com_ids)):
-    
-    try:
-        sub_membership_arr = mem_halo_id[np.isin(member_id, com_ids[i])]
 
-        subhalo_ids.append(statistics.mode(sub_membership_arr))
-    except:
+    sub_bool = np.isin(member_id, com_ids[i])
+
+    sub_membership_arr = mem_halo_id[sub_bool]
+
+    if sub_membership_arr.shape[0] == 0:
         subhalo_ids.append(np.nan)
+
+    else:
+        subhalo_ids.append(statistics.mode(sub_membership_arr))
 
 subhalo_ids = np.array(subhalo_ids)
 
