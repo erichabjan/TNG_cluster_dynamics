@@ -1036,3 +1036,308 @@ def bright_distinct_colors(n=100, s=0.95, v_hi=0.95, v_lo=0.80, method="vdc", h0
 
     rgb255 = np.clip(np.round(np.stack([r, g, b], axis=1) * 255), 0, 255).astype(np.uint8)
     return np.array([f"#{R:02X}{G:02X}{B:02X}" for R, G, B in rgb255], dtype=object)
+
+
+def _as_int_labels_with_nan_bg(arr: np.ndarray, *, bg_label: int = 0) -> np.ndarray:
+    """
+    Convert labels to int and map NaNs -> bg_label.
+    """
+    a = np.asarray(arr)
+    out = np.full(a.shape, bg_label, dtype=np.int64)
+    m = np.isfinite(a)
+    out[m] = a[m].astype(np.int64)
+    return out
+
+
+def _as_int_labels(arr: np.ndarray) -> np.ndarray:
+    """
+    Convert labels to int, mapping NaNs -> -1 (only used when caller intends to handle bg separately).
+    """
+    a = np.asarray(arr)
+    out = np.full(a.shape, -1, dtype=np.int64)
+    m = np.isfinite(a)
+    out[m] = a[m].astype(np.int64)
+    return out
+
+
+def _map_ds_background(dsp_row: np.ndarray, *, ds_bg_label: int = -1, unified_bg: int = 0) -> np.ndarray:
+    """
+    Convert DS+ labels to int; map NaNs -> unified_bg and ds_bg_label -> unified_bg.
+    """
+    x = np.asarray(dsp_row)
+    out = np.full(x.shape, unified_bg, dtype=np.int64)
+    m = np.isfinite(x)
+    out[m] = x[m].astype(np.int64)
+    out[out == ds_bg_label] = unified_bg
+    return out
+
+
+def _comb2(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=np.int64)
+    return x * (x - 1) // 2
+
+
+def _contingency(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
+    """
+    Contingency matrix for integer labels (no ignoring here).
+    """
+    y_true = np.asarray(y_true, dtype=np.int64)
+    y_pred = np.asarray(y_pred, dtype=np.int64)
+    t_ids, t_inv = np.unique(y_true, return_inverse=True)
+    p_ids, p_inv = np.unique(y_pred, return_inverse=True)
+
+    M = np.zeros((t_ids.size, p_ids.size), dtype=np.int64)
+    np.add.at(M, (t_inv, p_inv), 1)
+    return M
+
+
+def _apply_background_policy(
+    rs: np.ndarray,
+    ds: np.ndarray,
+    *,
+    include_rs_bg: bool,
+    include_ds_bg: bool,
+    bg_label: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Returns filtered label vectors according to inclusion flags.
+    If include_*_bg is False, galaxies with that background label are removed.
+    """
+    rs = np.asarray(rs, dtype=np.int64)
+    ds = np.asarray(ds, dtype=np.int64)
+    if rs.shape != ds.shape:
+        raise ValueError("rs and ds must have same shape.")
+
+    keep = np.ones(rs.shape, dtype=bool)
+    if not include_rs_bg:
+        keep &= (rs != bg_label)
+    if not include_ds_bg:
+        keep &= (ds != bg_label)
+
+    return rs[keep], ds[keep]
+
+def adjusted_rand_index(
+    rs_labels: np.ndarray,
+    ds_labels: np.ndarray,
+    *,
+    include_rs_bg: bool,
+    include_ds_bg: bool,
+    bg_label: int = 0,
+) -> float:
+    """
+    ARI computed after applying background inclusion policy.
+    Background is treated as label == bg_label.
+
+    If you exclude background on one/both sides, galaxies that are background
+    according to the excluded side are removed before ARI is computed.
+    """
+    rs_f, ds_f = _apply_background_policy(
+        rs_labels, ds_labels,
+        include_rs_bg=include_rs_bg,
+        include_ds_bg=include_ds_bg,
+        bg_label=bg_label,
+    )
+    n = rs_f.size
+    if n < 2:
+        return np.nan
+
+    M = _contingency(rs_f, ds_f)
+
+    sum_comb = _comb2(M).sum()
+    row = M.sum(axis=1)
+    col = M.sum(axis=0)
+    sum_row = _comb2(row).sum()
+    sum_col = _comb2(col).sum()
+    total = _comb2(n)
+    if total == 0:
+        return np.nan
+
+    expected = (sum_row * sum_col) / total
+    max_index = 0.5 * (sum_row + sum_col)
+    denom = max_index - expected
+    if denom == 0:
+        return 1.0 if sum_comb == expected else 0.0
+    return float((sum_comb - expected) / denom)
+
+
+def fragmentation_per_rockstar_subhalo(
+    rs_labels: np.ndarray,
+    ds_labels: np.ndarray,
+    *,
+    include_rs_bg: bool,
+    include_ds_bg: bool,
+    bg_label: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute f_a^frag for each ROCKSTAR label a.
+
+    Implementation:
+      - Apply galaxy filtering based on inclusion flags:
+          if include_rs_bg=False: drop galaxies with rs==bg_label
+          if include_ds_bg=False: drop galaxies with ds==bg_label
+      - For each remaining ROCKSTAR label a, define N_a as the number of remaining galaxies with rs==a.
+      - Define best overlap as max_b M_ab over the remaining DS+ labels b (background included only if include_ds_bg=True).
+      - f_a = 1 - best_overlap / N_a
+
+    Returns
+    -------
+    f_frag : (K,) fragmentation fractions
+    rs_ids : (K,) ROCKSTAR label ids aligned with f_frag
+    """
+    rs_f, ds_f = _apply_background_policy(
+        rs_labels, ds_labels,
+        include_rs_bg=include_rs_bg,
+        include_ds_bg=include_ds_bg,
+        bg_label=bg_label,
+    )
+
+    if rs_f.size == 0:
+        return np.array([], dtype=float), np.array([], dtype=np.int64)
+
+    rs_ids = np.unique(rs_f)
+    f = np.full(rs_ids.shape, np.nan, dtype=float)
+
+    for i, a in enumerate(rs_ids):
+        m = (rs_f == a)
+        N_a = int(m.sum())
+        if N_a == 0:
+            continue
+
+        # Overlap counts with DS+ labels for this ROCKSTAR group
+        uniq, cnt = np.unique(ds_f[m], return_counts=True)
+        best = int(cnt.max()) if cnt.size else 0
+        f[i] = 1.0 - best / N_a
+
+    return f, rs_ids
+
+def merging_per_ds_group(
+    rs_labels: np.ndarray,
+    ds_labels: np.ndarray,
+    *,
+    include_rs_bg: bool,
+    include_ds_bg: bool,
+    bg_label: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute f_b^merge for each DS+ label b.
+
+    Implementation:
+      - Apply galaxy filtering based on inclusion flags:
+          if include_rs_bg=False: drop galaxies with rs==bg_label
+          if include_ds_bg=False: drop galaxies with ds==bg_label
+      - For each remaining DS+ label b, define Nhat_b as number of remaining galaxies with ds==b.
+      - Define dominant true label as max_a M_ab over remaining ROCKSTAR labels a (background included only if include_rs_bg=True).
+      - f_b = 1 - dominant / Nhat_b
+
+    Returns
+    -------
+    f_merge : (G,) merging fractions
+    ds_ids : (G,) DS+ label ids aligned with f_merge
+    """
+    rs_f, ds_f = _apply_background_policy(
+        rs_labels, ds_labels,
+        include_rs_bg=include_rs_bg,
+        include_ds_bg=include_ds_bg,
+        bg_label=bg_label,
+    )
+
+    if ds_f.size == 0:
+        return np.array([], dtype=float), np.array([], dtype=np.int64)
+
+    ds_ids = np.unique(ds_f)
+    f = np.full(ds_ids.shape, np.nan, dtype=float)
+
+    for j, b in enumerate(ds_ids):
+        m = (ds_f == b)
+        Nhat_b = int(m.sum())
+        if Nhat_b == 0:
+            continue
+
+        uniq, cnt = np.unique(rs_f[m], return_counts=True)
+        dom = int(cnt.max()) if cnt.size else 0
+        f[j] = 1.0 - dom / Nhat_b
+
+    return f, ds_ids
+
+def evaluate_dsplus_runs(
+    dsp_groups: np.ndarray,
+    rockstar_group: np.ndarray,
+    *,
+    ds_bg_label: int = -1,
+    rockstar_bg_is_nan: bool = True,
+    bg_label: int = 0,
+
+    # ARI background inclusion flags
+    ari_include_rs_bg: bool = True,
+    ari_include_ds_bg: bool = True,
+
+    # Fragmentation background inclusion flags
+    frag_include_rs_bg: bool = False,
+    frag_include_ds_bg: bool = True,
+
+    # Merging background inclusion flags
+    merge_include_rs_bg: bool = False,
+    merge_include_ds_bg: bool = False,
+) -> dict:
+    """
+    Evaluate many DS+ runs (R, N) against one ROCKSTAR labeling (N,).
+
+    Returns
+    -------
+    dict with:
+      - ari: (R,)
+      - frag: list length R, each entry (K_r,) fragmentation fractions
+      - frag_rs_ids: list length R, each entry (K_r,) ROCKSTAR ids corresponding to frag[r]
+      - merge: list length R, each entry (G_r,) merging fractions
+      - merge_ds_ids: list length R, each entry (G_r,) DS+ ids corresponding to merge[r]
+    """
+    dsp_groups = np.asarray(dsp_groups)
+    if dsp_groups.ndim != 2:
+        raise ValueError("dsp_groups must have shape (R, N).")
+    R, N = dsp_groups.shape
+
+    # Map ROCKSTAR
+    if rockstar_bg_is_nan:
+        rs = _as_int_labels_with_nan_bg(rockstar_group, bg_label=bg_label)
+    else:
+        rs = np.asarray(rockstar_group, dtype=np.int64)
+
+    ari = np.full(R, np.nan, dtype=float)
+    frag_list, frag_ids_list = [], []
+    merge_list, merge_ids_list = [], []
+
+    for r in range(R):
+        ds = _map_ds_background(dsp_groups[r], ds_bg_label=ds_bg_label, unified_bg=bg_label)
+
+        ari[r] = adjusted_rand_index(
+            rs, ds,
+            include_rs_bg=ari_include_rs_bg,
+            include_ds_bg=ari_include_ds_bg,
+            bg_label=bg_label,
+        )
+
+        f_frag, rs_ids = fragmentation_per_rockstar_subhalo(
+            rs, ds,
+            include_rs_bg=frag_include_rs_bg,
+            include_ds_bg=frag_include_ds_bg,
+            bg_label=bg_label,
+        )
+        frag_list.append(f_frag)
+        frag_ids_list.append(rs_ids)
+
+        f_merge, ds_ids = merging_per_ds_group(
+            rs, ds,
+            include_rs_bg=merge_include_rs_bg,
+            include_ds_bg=merge_include_ds_bg,
+            bg_label=bg_label,
+        )
+        merge_list.append(f_merge)
+        merge_ids_list.append(ds_ids)
+
+    return {
+        "ari": ari,
+        "frag": frag_list,
+        "frag_rs_ids": frag_ids_list,
+        "merge": merge_list,
+        "merge_ds_ids": merge_ids_list,
+    }
