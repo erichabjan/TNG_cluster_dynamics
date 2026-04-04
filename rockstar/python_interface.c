@@ -107,10 +107,28 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
     }
     fclose(f);
 
+    /* Build mapping from global halo index to sequential local_id */
+    int64_t *global_to_local = calloc(num_halos - h_start, sizeof(int64_t));
+    if (!global_to_local) {
+        fprintf(stderr, "Failed to allocate global_to_local map.\n");
+        return -1;
+    }
+    {
+        int64_t lid = 0;
+        for (int64_t i = h_start; i < num_halos; i++) {
+            if (extra_info[i].sub_of < 0) {
+                global_to_local[i - h_start] = -1;
+            } else {
+                global_to_local[i - h_start] = lid++;
+            }
+        }
+    }
+
     /* Subhalo Membership file */
     FILE *f2 = fopen(member_fname, "w");
     if (!f2) {
         fprintf(stderr, "Failed to open membership file.\n");
+        free(global_to_local);
         return -1;
     }
 
@@ -121,12 +139,13 @@ int rockstar_analyze_fof_group(struct particle *particles, int64_t num_particles
         /* Remove inner fuzz */
         if (extra_info[hid].sub_of < 0) continue;
 
-        int64_t local_hid = hid - h_start;
+        int64_t local_hid = global_to_local[hid - h_start];
 
         fprintf(f2, "%" PRId64 " %" PRId64 "\n",
                 local_hid, (int64_t)particles[j].id);
     }
     fclose(f2);
+    free(global_to_local);
 
     return 0;
 }
