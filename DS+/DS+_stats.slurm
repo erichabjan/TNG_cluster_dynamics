@@ -3,7 +3,7 @@
 #SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/DS+_slurm_logs/DS+_stats_%j.log
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=01:00:00
+#SBATCH --time=02:00:00
 #SBATCH --mem=10G
 #SBATCH --partition=short
 

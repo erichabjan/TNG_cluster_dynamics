@@ -309,6 +309,10 @@ def run_dsp(positions_2d, velocity, in_groups, n_sims=1000, Plim_P = 1, Ng_jump=
 
         group_dsp_arr = np.where(sub_grnu_arr == sub_grnu[i])[0]
 
+        if sub_grnu[i] == -1:                              
+            dsp_g[group_dsp_arr] = 2
+            continue
+
         if sub_count[i] >= 3 and sub_count[i] < int(np.sqrt(len(velocity))):
             dsp_g[group_dsp_arr] = 1
     

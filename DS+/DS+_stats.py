@@ -5,18 +5,19 @@ DS+_stats.py
 Computes DS+ performance statistics across all 100 TNG clusters and
 1,000 random projections per cluster.
 
-Statistics computed:
-  1. ARI  – Adjusted Rand Index (global, per cluster × projection)
-  2. Fragmentation fraction – per ROCKSTAR subhalo, per projection
-  3. Merging fraction – per DS+ subhalo, per projection
-  4. Completeness & Purity – per cluster × projection (from virial CSV)
+All statistics are evaluated under three substructure-size cut policies
+(no_cuts / min3 / min3_maxsqrtN) with backgrounds excluded:
+  1. ARI            – Adjusted Rand Index, per cluster × projection
+  2. Completeness   – per cluster × projection
+  3. Purity         – per cluster × projection
+  4. Fragmentation  – per ROCKSTAR subhalo, per projection
+  5. Merging        – per DS+ subhalo, per projection
 
 Outputs (saved to SAVE_DIR):
-  - ari_stats.csv
-  - fragmentation_stats.csv
-  - merging_stats.csv
-  - completeness_purity_stats.csv
-  - cluster_mass_coherence.npy   (100 × 1000 arrays for mass and coherence)
+  - dsp_cases_stats.csv          (ARI / C / P for the three cut policies)
+  - fragmentation_stats.csv      (per-case fragmentation per RS subhalo, wide)
+  - merging_stats.csv            (per-case merging per DS+ subhalo, wide)
+  - cluster_mass_coherence.npz   (100 × 1000 arrays for mass and coherence)
 """
 
 import numpy as np
@@ -32,6 +33,53 @@ import TNG_DA
 # ── Constants ────────────────────────────────────────────────────────────
 N_CLUSTERS = 100
 N_PROJ     = 1000
+
+# Substructure-size cut policies. Each entry: (min_size, max_size).
+# max_size is exclusive (group kept if size < max_size). None means
+# "no bound on that side".
+CASE_PARAMS = {
+    'no_cuts':       (None, None),    # keep every detected group
+    'min3':          (3,    None),    # require ≥ 3 members
+    'min3_maxsqrtN': (3,    'sqrtN'), # require 3 ≤ size < sqrt(N_gal)
+}
+CASE_NAMES = list(CASE_PARAMS.keys())
+
+# ── Helpers for the size-cut cases ───────────────────────────────────────
+def _apply_size_cut_int(labels, *, bg_label=0, min_size=None, max_size=None):
+    """Return a copy of `labels` with every non-background group whose size
+    falls outside [min_size, max_size) reassigned to `bg_label`."""
+    out = labels.copy()
+    valid = out != bg_label
+    if not valid.any():
+        return out
+    uniq, inv = np.unique(out[valid], return_inverse=True)
+    counts = np.bincount(inv)
+    fail = np.zeros(uniq.size, dtype=bool)
+    if min_size is not None:
+        fail |= counts < min_size
+    if max_size is not None:
+        fail |= counts >= max_size
+    if fail.any():
+        out[np.isin(out, uniq[fail])] = bg_label
+    return out
+
+
+def _binary_substructure(labels, *, bg_label=0, min_size=None, max_size=None):
+    """Return a 0/1 array marking galaxies that lie in a non-background
+    group whose size satisfies the cut."""
+    out = np.zeros(labels.shape, dtype=np.int8)
+    valid = labels != bg_label
+    if not valid.any():
+        return out
+    uniq, inv = np.unique(labels[valid], return_inverse=True)
+    counts = np.bincount(inv)
+    keep = np.ones(uniq.size, dtype=bool)
+    if min_size is not None:
+        keep &= counts >= min_size
+    if max_size is not None:
+        keep &= counts < max_size
+    out[valid] = keep[inv].astype(np.int8)
+    return out
 
 # ── Data paths ───────────────────────────────────────────────────────────
 DSP_DATA    = '/projects/mccleary_group/habjan.e/TNG/Data/data_DS+_virial_results/'
@@ -65,28 +113,31 @@ tng_m200_raw = iapi.getHaloField(
 tng_m200 = np.log10(tng_m200_raw[:N_CLUSTERS] * 1e10 / h)   # log10(M_sun)
 
 # ── Pre-allocate fixed-size arrays (100 clusters × 1000 projections) ────
-ari_all          = np.full((N_CLUSTERS, N_PROJ), np.nan)
-completeness_all = np.full((N_CLUSTERS, N_PROJ), np.nan)
-purity_all       = np.full((N_CLUSTERS, N_PROJ), np.nan)
-cluster_mass     = np.zeros(N_CLUSTERS)
-coh_3d_arr       = np.zeros(N_CLUSTERS)
-coh_3d_err_arr   = np.zeros(N_CLUSTERS)
-triax_arr        = np.zeros(N_CLUSTERS)
+cluster_mass       = np.zeros(N_CLUSTERS)
+coh_3d_arr         = np.zeros(N_CLUSTERS)
+coh_3d_err_arr     = np.zeros(N_CLUSTERS)
+triax_arr          = np.zeros(N_CLUSTERS)
 coherence_full     = np.zeros((N_CLUSTERS, N_PROJ))   # per-projection coherence
 coherence_err_full = np.zeros((N_CLUSTERS, N_PROJ))   # per-projection 2D error
 
-# ── Variable-size accumulators: fragmentation ────────────────────────────
+# Per-case ARI / completeness / purity (cluster × projection)
+ari_cases = {c: np.full((N_CLUSTERS, N_PROJ), np.nan) for c in CASE_NAMES}
+cmp_cases = {c: np.full((N_CLUSTERS, N_PROJ), np.nan) for c in CASE_NAMES}
+pur_cases = {c: np.full((N_CLUSTERS, N_PROJ), np.nan) for c in CASE_NAMES}
+
+# ── Variable-size wide accumulators ──────────────────────────────────────
+# Fragmentation: one row per (cluster, projection, ROCKSTAR subhalo)
 frag_cl_list      = []
 frag_proj_list    = []
 frag_rsid_list    = []
-frag_val_list     = []
+frag_case_lists   = {c: [] for c in CASE_NAMES}
 frag_rsmass_list  = []
 
-# ── Variable-size accumulators: merging ──────────────────────────────────
+# Merging: one row per (cluster, projection, DS+ subhalo)
 merge_cl_list     = []
 merge_proj_list   = []
 merge_dsid_list   = []
-merge_val_list    = []
+merge_case_lists  = {c: [] for c in CASE_NAMES}
 merge_com_list    = []
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -117,11 +168,9 @@ for cl_id in range(N_CLUSTERS):
     coh_3d_arr[cl_id]     = np.load(COH_3D_DATA + f'coherence_length_{cl_id}.npy')[0]
     coh_3d_err_arr[cl_id] = np.load(COH_3D_DATA + f'coherence_length_err_{cl_id}.npy')[0]
 
-    # ── 4. Virial CSV → completeness, purity, triaxiality ───────────────
+    # ── 4. Virial CSV → triaxiality (scalar per cluster) ─────────────────
     vdf = pd.read_csv(DSP_DATA + f'DS+_Virial_df_{cl_id}.csv')
-    completeness_all[cl_id] = vdf['Completeness'].values
-    purity_all[cl_id]       = vdf['Purity'].values
-    triax_arr[cl_id]        = vdf['Triaxiality'].values[0]
+    triax_arr[cl_id] = vdf['Triaxiality'].values[0]
 
     # ── 5. ROCKSTAR catalog → mass look-up table ────────────────────────
     rs_df = pd.read_csv(
@@ -133,59 +182,124 @@ for cl_id in range(N_CLUSTERS):
     rs_mass_lut = np.zeros(max_rsid)
     rs_mass_lut[rs_ids_cat] = np.array(rs_df['mgrav_bound'])
 
-    # ── 6. Evaluate DS+ runs (ARI, fragmentation, merging) ──────────────
-    results = TNG_DA.evaluate_dsplus_runs(
-        dsp_groups, group,
-        ari_include_rs_bg=True,   ari_include_ds_bg=True,
-        frag_include_rs_bg=False, frag_include_ds_bg=False,
-        merge_include_rs_bg=False, merge_include_ds_bg=False,
-    )
-    ari_all[cl_id] = results['ari']
-
-    # Pre-compute integer ROCKSTAR labels (needed for merging COM)
+    # ── 6. Pre-compute integer labels (rs fixed; dsp per projection) ─────
     rs_int = TNG_DA._as_int_labels_with_nan_bg(group, bg_label=0)
-
-    # ── 7. Per-projection: collect fragmentation & merging ───────────────
+    dsp_int = np.empty(dsp_groups.shape, dtype=np.int64)
     for r in range(N_PROJ):
+        dsp_int[r] = TNG_DA._map_ds_background(
+            dsp_groups[r], ds_bg_label=-1, unified_bg=0,
+        )
 
+    # ── 7. Per-case ARI / C / P / fragmentation / merging ────────────────
+    # All five stats use backgrounds excluded on both sides.
+    sqrtN = int(np.sqrt(N_gal))
+    case_frag_per_proj  = {c: {} for c in CASE_NAMES}   # case → {r: {rs_id: frag}}
+    case_merge_per_proj = {c: {} for c in CASE_NAMES}   # case → {r: {ds_id: merge}}
+
+    for case_name, (min_sz, max_sz_spec) in CASE_PARAMS.items():
+        max_sz = sqrtN if max_sz_spec == 'sqrtN' else max_sz_spec
+
+        rs_case = _apply_size_cut_int(
+            rs_int, bg_label=0, min_size=min_sz, max_size=max_sz,
+        )
+        tng_bin = _binary_substructure(
+            rs_int, bg_label=0, min_size=min_sz, max_size=max_sz,
+        )
+        n_real = int(tng_bin.sum())
+
+        for r in range(N_PROJ):
+            dsp_case_row = _apply_size_cut_int(
+                dsp_int[r], bg_label=0, min_size=min_sz, max_size=max_sz,
+            )
+            dsp_bin = _binary_substructure(
+                dsp_int[r], bg_label=0, min_size=min_sz, max_size=max_sz,
+            )
+
+            ari_cases[case_name][cl_id, r] = TNG_DA.adjusted_rand_index(
+                rs_case, dsp_case_row,
+                include_rs_bg=False, include_ds_bg=False, bg_label=0,
+            )
+
+            n_dsp  = int(dsp_bin.sum())
+            n_both = int((tng_bin & dsp_bin).sum())
+            cmp_cases[case_name][cl_id, r] = (
+                n_both / n_real if n_real > 0 else np.nan
+            )
+            pur_cases[case_name][cl_id, r] = (
+                n_both / n_dsp if n_dsp > 0 else np.nan
+            )
+
+            f_frag, frag_rs_ids = TNG_DA.fragmentation_per_rockstar_subhalo(
+                rs_case, dsp_case_row,
+                include_rs_bg=False, include_ds_bg=False, bg_label=0,
+            )
+            case_frag_per_proj[case_name][r] = dict(
+                zip(frag_rs_ids.tolist(), f_frag.tolist())
+            )
+
+            f_merge, merge_ds_ids = TNG_DA.merging_per_ds_group(
+                rs_case, dsp_case_row,
+                include_rs_bg=False, include_ds_bg=False, bg_label=0,
+            )
+            case_merge_per_proj[case_name][r] = dict(
+                zip(merge_ds_ids.tolist(), f_merge.tolist())
+            )
+
+    # ── 8. Assemble wide-format frag/merge rows per projection ───────────
+    # The no_cuts case is the superset (cuts are nested), so its subhalo
+    # ids drive the row set; stricter cases produce NaN where they drop ids.
+    for r in range(N_PROJ):
         # ── Fragmentation ────────────────────────────────────────────────
-        fv   = results['frag'][r]
-        fids = results['frag_rs_ids'][r]
-        nf   = len(fv)
-        if nf > 0:
+        no_cuts_frag = case_frag_per_proj['no_cuts'].get(r, {})
+        rs_ids_sorted = sorted(no_cuts_frag.keys())
+        if rs_ids_sorted:
+            rs_ids_arr = np.array(rs_ids_sorted, dtype=np.int64)
+            nf = rs_ids_arr.size
             frag_cl_list.append(np.full(nf, cl_id, dtype=np.int32))
             frag_proj_list.append(np.full(nf, r, dtype=np.int32))
-            frag_rsid_list.append(fids.astype(np.int64))
-            frag_val_list.append(fv)
-            # Look up ROCKSTAR mass for each subhalo
-            safe = np.clip(fids.astype(int), 0, max_rsid - 1)
+            frag_rsid_list.append(rs_ids_arr)
+            for case_name in CASE_NAMES:
+                d = case_frag_per_proj[case_name].get(r, {})
+                vals = np.array(
+                    [d.get(int(rid), np.nan) for rid in rs_ids_arr],
+                    dtype=float,
+                )
+                frag_case_lists[case_name].append(vals)
+            safe = np.clip(rs_ids_arr.astype(int), 0, max_rsid - 1)
             frag_rsmass_list.append(
-                np.where(fids.astype(int) < max_rsid,
+                np.where(rs_ids_arr.astype(int) < max_rsid,
                          rs_mass_lut[safe], np.nan)
             )
 
-        # ── Merging + mass-weighted radial COM ───────────────────────────
-        mv   = results['merge'][r]
-        mids = results['merge_ds_ids'][r]
-        nm   = len(mv)
-        if nm > 0:
+        # ── Merging ──────────────────────────────────────────────────────
+        no_cuts_merge = case_merge_per_proj['no_cuts'].get(r, {})
+        ds_ids_sorted = sorted(no_cuts_merge.keys())
+        if ds_ids_sorted:
+            ds_ids_arr = np.array(ds_ids_sorted, dtype=np.int64)
+            nm = ds_ids_arr.size
             merge_cl_list.append(np.full(nm, cl_id, dtype=np.int32))
             merge_proj_list.append(np.full(nm, r, dtype=np.int32))
-            merge_dsid_list.append(mids.astype(np.int64))
-            merge_val_list.append(mv)
+            merge_dsid_list.append(ds_ids_arr)
+            for case_name in CASE_NAMES:
+                d = case_merge_per_proj[case_name].get(r, {})
+                vals = np.array(
+                    [d.get(int(did), np.nan) for did in ds_ids_arr],
+                    dtype=float,
+                )
+                merge_case_lists[case_name].append(vals)
 
-            # Reconstruct DS+ labels with the same background policy used
-            # in evaluate_dsplus_runs so COM indices are consistent.
-            ds   = TNG_DA._map_ds_background(
+            # Mass-weighted radial COM (case-independent: derived from raw
+            # labels with both backgrounds excluded — same mask used to
+            # define the no_cuts ds_id set).
+            ds = TNG_DA._map_ds_background(
                 dsp_groups[r], ds_bg_label=-1, unified_bg=0
             )
-            keep = (rs_int != 0) & (ds != 0)      # exclude both backgrounds
+            keep = (rs_int != 0) & (ds != 0)
             kidx = np.where(keep)[0]
             ds_k = ds[keep]
-
             com = np.full(nm, np.nan)
             for g in range(nm):
-                sel = kidx[ds_k == mids[g]]
+                sel = kidx[ds_k == int(ds_ids_arr[g])]
                 if len(sel) > 0:
                     w  = sub_masses[sel]
                     tw = w.sum()
@@ -202,11 +316,16 @@ print("Saving results …", flush=True)
 ci = np.repeat(np.arange(N_CLUSTERS), N_PROJ)
 pi = np.tile(np.arange(N_PROJ), N_CLUSTERS)
 
-# ── ARI stats ────────────────────────────────────────────────────────────
-pd.DataFrame({
+# ── ARI / completeness / purity per cut-policy case ─────────────────────
+case_cols = {
     'cluster_id':       ci,
     'projection_idx':   pi,
-    'ari':              ari_all.ravel(),
+}
+for c in CASE_NAMES:
+    case_cols[f'ari_{c}']          = ari_cases[c].ravel()
+    case_cols[f'completeness_{c}'] = cmp_cases[c].ravel()
+    case_cols[f'purity_{c}']       = pur_cases[c].ravel()
+case_cols.update({
     'cluster_mass':     np.repeat(cluster_mass,   N_PROJ),
     'm200':             np.repeat(tng_m200,       N_PROJ),
     'coherence_2d':     coherence_full.ravel(),
@@ -214,63 +333,60 @@ pd.DataFrame({
     'coherence_3d':     np.repeat(coh_3d_arr,     N_PROJ),
     'coherence_3d_err': np.repeat(coh_3d_err_arr, N_PROJ),
     'triaxiality':      np.repeat(triax_arr,      N_PROJ),
-}).to_csv(SAVE_DIR + 'ari_stats.csv', index=False)
-print("  ✓ ari_stats.csv")
+})
+pd.DataFrame(case_cols).to_csv(SAVE_DIR + 'dsp_cases_stats.csv', index=False)
+print("  ✓ dsp_cases_stats.csv")
 
-# ── Completeness & Purity stats ─────────────────────────────────────────
-pd.DataFrame({
-    'cluster_id':       ci,
-    'projection_idx':   pi,
-    'completeness':     completeness_all.ravel(),
-    'purity':           purity_all.ravel(),
-    'cluster_mass':     np.repeat(cluster_mass,   N_PROJ),
-    'm200':             np.repeat(tng_m200,       N_PROJ),
-    'coherence_2d':     coherence_full.ravel(),
-    'coherence_2d_err': coherence_err_full.ravel(),
-    'coherence_3d':     np.repeat(coh_3d_arr,     N_PROJ),
-    'coherence_3d_err': np.repeat(coh_3d_err_arr, N_PROJ),
-    'triaxiality':      np.repeat(triax_arr,      N_PROJ),
-}).to_csv(SAVE_DIR + 'completeness_purity_stats.csv', index=False)
-print("  ✓ completeness_purity_stats.csv")
-
-# ── Fragmentation stats ─────────────────────────────────────────────────
+# ── Fragmentation stats (wide: one column per cut-policy case) ──────────
 if frag_cl_list:
     fc = np.concatenate(frag_cl_list)
     fp = np.concatenate(frag_proj_list)
-    pd.DataFrame({
+    frag_df = {
         'cluster_id':          fc,
         'projection_idx':      fp,
         'rockstar_subhalo_id': np.concatenate(frag_rsid_list),
-        'fragmentation':       np.concatenate(frag_val_list),
-        'rockstar_mass':       np.concatenate(frag_rsmass_list),
-        'cluster_mass':        cluster_mass[fc],
-        'm200':                tng_m200[fc],
-        'coherence_2d':        coherence_full[fc, fp],
-        'coherence_2d_err':    coherence_err_full[fc, fp],
-        'coherence_3d':        coh_3d_arr[fc],
-        'coherence_3d_err':    coh_3d_err_arr[fc],
-        'triaxiality':         triax_arr[fc],
-    }).to_csv(SAVE_DIR + 'fragmentation_stats.csv', index=False)
+    }
+    for c in CASE_NAMES:
+        frag_df[f'fragmentation_{c}'] = np.concatenate(frag_case_lists[c])
+    frag_df.update({
+        'rockstar_mass':    np.concatenate(frag_rsmass_list),
+        'cluster_mass':     cluster_mass[fc],
+        'm200':             tng_m200[fc],
+        'coherence_2d':     coherence_full[fc, fp],
+        'coherence_2d_err': coherence_err_full[fc, fp],
+        'coherence_3d':     coh_3d_arr[fc],
+        'coherence_3d_err': coh_3d_err_arr[fc],
+        'triaxiality':      triax_arr[fc],
+    })
+    pd.DataFrame(frag_df).to_csv(
+        SAVE_DIR + 'fragmentation_stats.csv', index=False
+    )
     print("  ✓ fragmentation_stats.csv")
 
-# ── Merging stats ────────────────────────────────────────────────────────
+# ── Merging stats (wide: one column per cut-policy case) ────────────────
 if merge_cl_list:
     mc = np.concatenate(merge_cl_list)
     mp = np.concatenate(merge_proj_list)
-    pd.DataFrame({
-        'cluster_id':        mc,
-        'projection_idx':    mp,
-        'ds_subhalo_id':     np.concatenate(merge_dsid_list),
-        'merging':           np.concatenate(merge_val_list),
+    merge_df = {
+        'cluster_id':     mc,
+        'projection_idx': mp,
+        'ds_subhalo_id':  np.concatenate(merge_dsid_list),
+    }
+    for c in CASE_NAMES:
+        merge_df[f'merging_{c}'] = np.concatenate(merge_case_lists[c])
+    merge_df.update({
         'substructure_com_r': np.concatenate(merge_com_list),
-        'cluster_mass':      cluster_mass[mc],
-        'm200':              tng_m200[mc],
-        'coherence_2d':      coherence_full[mc, mp],
-        'coherence_2d_err':  coherence_err_full[mc, mp],
-        'coherence_3d':      coh_3d_arr[mc],
-        'coherence_3d_err':  coh_3d_err_arr[mc],
-        'triaxiality':       triax_arr[mc],
-    }).to_csv(SAVE_DIR + 'merging_stats.csv', index=False)
+        'cluster_mass':       cluster_mass[mc],
+        'm200':               tng_m200[mc],
+        'coherence_2d':       coherence_full[mc, mp],
+        'coherence_2d_err':   coherence_err_full[mc, mp],
+        'coherence_3d':       coh_3d_arr[mc],
+        'coherence_3d_err':   coh_3d_err_arr[mc],
+        'triaxiality':        triax_arr[mc],
+    })
+    pd.DataFrame(merge_df).to_csv(
+        SAVE_DIR + 'merging_stats.csv', index=False
+    )
     print("  ✓ merging_stats.csv")
 
 # ── 100 × 1000 companion arrays (cluster mass & per-projection coherence)
