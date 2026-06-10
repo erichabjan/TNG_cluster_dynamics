@@ -45,7 +45,7 @@ CASE_PARAMS = {
 CASE_NAMES = list(CASE_PARAMS.keys())
 
 # ── Helpers for the size-cut cases ───────────────────────────────────────
-def _apply_size_cut_int(labels, *, bg_label=0, min_size=None, max_size=None):
+def _apply_size_cut_int(labels, *, bg_label=-1, min_size=None, max_size=None):
     """Return a copy of `labels` with every non-background group whose size
     falls outside [min_size, max_size) reassigned to `bg_label`."""
     out = labels.copy()
@@ -64,7 +64,7 @@ def _apply_size_cut_int(labels, *, bg_label=0, min_size=None, max_size=None):
     return out
 
 
-def _binary_substructure(labels, *, bg_label=0, min_size=None, max_size=None):
+def _binary_substructure(labels, *, bg_label=-1, min_size=None, max_size=None):
     """Return a 0/1 array marking galaxies that lie in a non-background
     group whose size satisfies the cut."""
     out = np.zeros(labels.shape, dtype=np.int8)
@@ -183,11 +183,11 @@ for cl_id in range(N_CLUSTERS):
     rs_mass_lut[rs_ids_cat] = np.array(rs_df['mgrav_bound'])
 
     # ── 6. Pre-compute integer labels (rs fixed; dsp per projection) ─────
-    rs_int = TNG_DA._as_int_labels_with_nan_bg(group, bg_label=0)
+    rs_int = TNG_DA._as_int_labels_with_nan_bg(group, bg_label=-1)
     dsp_int = np.empty(dsp_groups.shape, dtype=np.int64)
     for r in range(N_PROJ):
         dsp_int[r] = TNG_DA._map_ds_background(
-            dsp_groups[r], ds_bg_label=-1, unified_bg=0,
+            dsp_groups[r], ds_bg_label=-1, unified_bg=-1,
         )
 
     # ── 7. Per-case ARI / C / P / fragmentation / merging ────────────────
@@ -200,24 +200,26 @@ for cl_id in range(N_CLUSTERS):
         max_sz = sqrtN if max_sz_spec == 'sqrtN' else max_sz_spec
 
         rs_case = _apply_size_cut_int(
-            rs_int, bg_label=0, min_size=min_sz, max_size=max_sz,
+            rs_int, bg_label=-1, min_size=min_sz, max_size=max_sz,
         )
         tng_bin = _binary_substructure(
-            rs_int, bg_label=0, min_size=min_sz, max_size=max_sz,
+            rs_int, bg_label=-1, min_size=min_sz, max_size=max_sz,
         )
         n_real = int(tng_bin.sum())
 
         for r in range(N_PROJ):
             dsp_case_row = _apply_size_cut_int(
-                dsp_int[r], bg_label=0, min_size=min_sz, max_size=max_sz,
+                dsp_int[r], bg_label=-1, min_size=min_sz, max_size=max_sz,
             )
             dsp_bin = _binary_substructure(
-                dsp_int[r], bg_label=0, min_size=min_sz, max_size=max_sz,
+                dsp_int[r], bg_label=-1, min_size=min_sz, max_size=max_sz,
             )
 
+            # ARI: include both backgrounds so the metric reflects every
+            # galaxy's group assignment (matches paper text).
             ari_cases[case_name][cl_id, r] = TNG_DA.adjusted_rand_index(
                 rs_case, dsp_case_row,
-                include_rs_bg=False, include_ds_bg=False, bg_label=0,
+                include_rs_bg=False, include_ds_bg=False, bg_label=-1,
             )
 
             n_dsp  = int(dsp_bin.sum())
@@ -229,17 +231,23 @@ for cl_id in range(N_CLUSTERS):
                 n_both / n_dsp if n_dsp > 0 else np.nan
             )
 
+            # Fragmentation: keep DS+-bg members in N_a (so members DS+ lost
+            # to background count against the metric). bg is excluded from
+            # being the dominant DS+ group by the function itself.
             f_frag, frag_rs_ids = TNG_DA.fragmentation_per_rockstar_subhalo(
                 rs_case, dsp_case_row,
-                include_rs_bg=False, include_ds_bg=False, bg_label=0,
+                include_rs_bg=True, include_ds_bg=True, bg_label=-1,
             )
             case_frag_per_proj[case_name][r] = dict(
                 zip(frag_rs_ids.tolist(), f_frag.tolist())
             )
 
+            # Merging: keep rs-bg members in Nhat_b (so rs-bg galaxies DS+
+            # wrapped into a group count as contamination). bg is excluded
+            # from being the dominant rs subhalo by the function itself.
             f_merge, merge_ds_ids = TNG_DA.merging_per_ds_group(
                 rs_case, dsp_case_row,
-                include_rs_bg=False, include_ds_bg=False, bg_label=0,
+                include_rs_bg=True, include_ds_bg=True, bg_label=-1,
             )
             case_merge_per_proj[case_name][r] = dict(
                 zip(merge_ds_ids.tolist(), f_merge.tolist())
@@ -292,9 +300,9 @@ for cl_id in range(N_CLUSTERS):
             # labels with both backgrounds excluded — same mask used to
             # define the no_cuts ds_id set).
             ds = TNG_DA._map_ds_background(
-                dsp_groups[r], ds_bg_label=-1, unified_bg=0
+                dsp_groups[r], ds_bg_label=-1, unified_bg=-1
             )
-            keep = (rs_int != 0) & (ds != 0)
+            keep = (rs_int != -1) & (ds != -1)
             kidx = np.where(keep)[0]
             ds_k = ds[keep]
             com = np.full(nm, np.nan)

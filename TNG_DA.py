@@ -1042,7 +1042,7 @@ def bright_distinct_colors(n=100, s=0.95, v_hi=0.95, v_lo=0.80, method="vdc", h0
     return np.array([f"#{R:02X}{G:02X}{B:02X}" for R, G, B in rgb255], dtype=object)
 
 
-def _as_int_labels_with_nan_bg(arr: np.ndarray, *, bg_label: int = 0) -> np.ndarray:
+def _as_int_labels_with_nan_bg(arr: np.ndarray, *, bg_label: int = -1) -> np.ndarray:
     """
     Convert labels to int and map NaNs -> bg_label.
     """
@@ -1064,7 +1064,7 @@ def _as_int_labels(arr: np.ndarray) -> np.ndarray:
     return out
 
 
-def _map_ds_background(dsp_row: np.ndarray, *, ds_bg_label: int = -1, unified_bg: int = 0) -> np.ndarray:
+def _map_ds_background(dsp_row: np.ndarray, *, ds_bg_label: int = -1, unified_bg: int = -1) -> np.ndarray:
     """
     Convert DS+ labels to int; map NaNs -> unified_bg and ds_bg_label -> unified_bg.
     """
@@ -1101,7 +1101,7 @@ def _apply_background_policy(
     *,
     include_rs_bg: bool,
     include_ds_bg: bool,
-    bg_label: int = 0,
+    bg_label: int = -1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Returns filtered label vectors according to inclusion flags.
@@ -1126,7 +1126,7 @@ def adjusted_rand_index(
     *,
     include_rs_bg: bool,
     include_ds_bg: bool,
-    bg_label: int = 0,
+    bg_label: int = -1,
 ) -> float:
     """
     ARI computed after applying background inclusion policy.
@@ -1170,23 +1170,28 @@ def fragmentation_per_rockstar_subhalo(
     *,
     include_rs_bg: bool,
     include_ds_bg: bool,
-    bg_label: int = 0,
+    bg_label: int = -1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Compute f_a^frag for each ROCKSTAR label a.
+    Compute f_a^frag for each real ROCKSTAR subhalo a.
 
     Implementation:
       - Apply galaxy filtering based on inclusion flags:
           if include_rs_bg=False: drop galaxies with rs==bg_label
           if include_ds_bg=False: drop galaxies with ds==bg_label
-      - For each remaining ROCKSTAR label a, define N_a as the number of remaining galaxies with rs==a.
-      - Define best overlap as max_b M_ab over the remaining DS+ labels b (background included only if include_ds_bg=True).
-      - f_a = 1 - best_overlap / N_a
+      - Iterate only over real ROCKSTAR labels (bg_label is always skipped — it
+        is not a subhalo). For each such label a, N_a is the count of remaining
+        galaxies with rs==a.
+      - Best overlap is max_b M_ab restricted to real DS+ groups: bg_label is
+        never eligible to be the dominant group, since DS+ losing rs subhalo
+        members to background is a failure, not a "best match".
+      - f_a = 1 - best_overlap / N_a; if no rs-a member is in any real DS+
+        group then best_overlap = 0 and f_a = 1.0.
 
     Returns
     -------
-    f_frag : (K,) fragmentation fractions
-    rs_ids : (K,) ROCKSTAR label ids aligned with f_frag
+    f_frag : (K,) fragmentation fractions (one per real ROCKSTAR subhalo)
+    rs_ids : (K,) ROCKSTAR label ids aligned with f_frag (bg_label excluded)
     """
     rs_f, ds_f = _apply_background_policy(
         rs_labels, ds_labels,
@@ -1198,7 +1203,8 @@ def fragmentation_per_rockstar_subhalo(
     if rs_f.size == 0:
         return np.array([], dtype=float), np.array([], dtype=np.int64)
 
-    rs_ids = np.unique(rs_f)
+    rs_ids_all = np.unique(rs_f)
+    rs_ids = rs_ids_all[rs_ids_all != bg_label]
     f = np.full(rs_ids.shape, np.nan, dtype=float)
 
     for i, a in enumerate(rs_ids):
@@ -1207,9 +1213,10 @@ def fragmentation_per_rockstar_subhalo(
         if N_a == 0:
             continue
 
-        # Overlap counts with DS+ labels for this ROCKSTAR group
+        # Overlap counts with DS+ labels; bg is never eligible to be the max.
         uniq, cnt = np.unique(ds_f[m], return_counts=True)
-        best = int(cnt.max()) if cnt.size else 0
+        real = uniq != bg_label
+        best = int(cnt[real].max()) if real.any() else 0
         f[i] = 1.0 - best / N_a
 
     return f, rs_ids
@@ -1220,23 +1227,29 @@ def merging_per_ds_group(
     *,
     include_rs_bg: bool,
     include_ds_bg: bool,
-    bg_label: int = 0,
+    bg_label: int = -1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Compute f_b^merge for each DS+ label b.
+    Compute f_b^merge for each real DS+ group b.
 
     Implementation:
       - Apply galaxy filtering based on inclusion flags:
           if include_rs_bg=False: drop galaxies with rs==bg_label
           if include_ds_bg=False: drop galaxies with ds==bg_label
-      - For each remaining DS+ label b, define Nhat_b as number of remaining galaxies with ds==b.
-      - Define dominant true label as max_a M_ab over remaining ROCKSTAR labels a (background included only if include_rs_bg=True).
-      - f_b = 1 - dominant / Nhat_b
+      - Iterate only over real DS+ labels (bg_label is always skipped — it is
+        not a detected group). For each such label b, Nhat_b is the count of
+        remaining galaxies with ds==b.
+      - Dominant true label is max_a M_ab restricted to real ROCKSTAR
+        subhalos: bg_label is never eligible to be the dominant true label,
+        since DS+ wrapping rs-bg galaxies into a group is a contamination, not
+        a "match".
+      - f_b = 1 - dominant / Nhat_b; if no DS+ group b member is in any real
+        rs subhalo then dominant = 0 and f_b = 1.0.
 
     Returns
     -------
-    f_merge : (G,) merging fractions
-    ds_ids : (G,) DS+ label ids aligned with f_merge
+    f_merge : (G,) merging fractions (one per real DS+ group)
+    ds_ids  : (G,) DS+ label ids aligned with f_merge (bg_label excluded)
     """
     rs_f, ds_f = _apply_background_policy(
         rs_labels, ds_labels,
@@ -1248,7 +1261,8 @@ def merging_per_ds_group(
     if ds_f.size == 0:
         return np.array([], dtype=float), np.array([], dtype=np.int64)
 
-    ds_ids = np.unique(ds_f)
+    ds_ids_all = np.unique(ds_f)
+    ds_ids = ds_ids_all[ds_ids_all != bg_label]
     f = np.full(ds_ids.shape, np.nan, dtype=float)
 
     for j, b in enumerate(ds_ids):
@@ -1258,7 +1272,8 @@ def merging_per_ds_group(
             continue
 
         uniq, cnt = np.unique(rs_f[m], return_counts=True)
-        dom = int(cnt.max()) if cnt.size else 0
+        real = uniq != bg_label
+        dom = int(cnt[real].max()) if real.any() else 0
         f[j] = 1.0 - dom / Nhat_b
 
     return f, ds_ids
@@ -1269,7 +1284,7 @@ def evaluate_dsplus_runs(
     *,
     ds_bg_label: int = -1,
     rockstar_bg_is_nan: bool = True,
-    bg_label: int = 0,
+    bg_label: int = -1,
 
     # ARI background inclusion flags
     ari_include_rs_bg: bool = True,
