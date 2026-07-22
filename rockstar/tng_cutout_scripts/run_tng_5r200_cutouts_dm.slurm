@@ -9,16 +9,16 @@
 #SBATCH --array=0-99
 
 # ---- user settings ----
-SIM="TNG300-1"
+SIM="TNG-Cluster"
 SNAP=99
 RMULT=5.0
 RDEF="Group_R_Crit200"
 CENTER_FIELD="GroupPos"
 
 CHUNKS_DIR="/scratch/habjan.e/_tmp_tng_chunks/${SIM}/snap_${SNAP}/snapshot_chunks"
-OUT_DIR="/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data"
+OUT_DIR="/scratch/habjan.e/TNG/Data/TNG_data/5r200_data-C" #"/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data-2"
 
-HALO_LIST="halo_ids.txt"
+HALO_LIST="/home/habjan.e/TNG/Sandbox_notebooks/rockstar_sandboxes/halo_ids_TNG-Cluster.txt" #"/home/habjan.e/TNG/Sandbox_notebooks/rockstar_sandboxes/halo_ids.txt"
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate cl_dyn
@@ -26,7 +26,7 @@ conda activate cl_dyn
 mkdir -p /scratch/habjan.e/tng_cutout_logs
 mkdir -p "${OUT_DIR}"
 
-export TNG_API_KEY="Your API key"
+export TNG_API_KEY="4486a4dd0aa3dd16f1d5fe60b5a22687"
 
 # ---- pick halo for this task ----
 HALO_ID=$(sed -n "$((SLURM_ARRAY_TASK_ID+1))p" "${HALO_LIST}")

@@ -29,14 +29,23 @@ start = time.time()
 
 parser = argparse.ArgumentParser(description="TNG ROCKSTAR Script")
 parser.add_argument("cluster_ID", type=str, help="ID of the cluster to process")
+parser.add_argument("simulation", type=str, help="simulation to process")
 args = parser.parse_args()
 cluster_id = args.cluster_ID
+sim = args.simulation
 print('Processing Cluster ' + cluster_id)
+
+if sim == 'TNG-Cluster':
+    sim_int = 'C'
+    file_loc = '/scratch/habjan.e/TNG'
+else:
+    sim_int = int(sim.rsplit("-", 1)[-1])
+    file_loc = '/projects/mccleary_group/habjan.e/TNG'
 
 ### Download particle data from TNG
 #halo_cutout_url = f'http://www.tng-project.org/api/TNG300-1/snapshots/99/halos/' + cluster_id + '/cutout.hdf5' 
 #params={'dm':'Coordinates,ParticleIDs,Velocities'}
-fName = '/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/dm_within_5r200_' + cluster_id
+fName = file_loc + f'/Data/TNG_data/5r200_data-{sim_int}/dm_within_5r200_' + cluster_id
 #cutout = iapi.get(halo_cutout_url, params = params, fName = fName)
 
 ### Import downloaded cluster
@@ -45,17 +54,27 @@ h = 0.667
 
 with h5py.File(fName+'.hdf5', 'r') as f:
 
-    coordinates = f['PartType1']['Coordinates'][:]
-    velocities = f['PartType1']['Velocities'][:]
-    ids = f['PartType1']['ParticleIDs'][:]
+    if sim == 'TNG-Cluster':
 
-### Hard-coded particle DM mass
-masses = np.zeros(coordinates.shape[0]) + (5.9 * 10**7 * h)
-coordinates = coordinates
+        coordinates = f['DarkMatter']['Coordinates'][:]
+        velocities = f['DarkMatter']['Velocities'][:]
+        masses = f['DarkMatter']['Masses'][:] * 10**10 / h ### solar masses
+        ids = f['DarkMatter']['ParticleIDs'][:]
+
+    else: 
+
+        coordinates = f['PartType1']['Coordinates'][:]
+        velocities = f['PartType1']['Velocities'][:]
+        ids = f['PartType1']['ParticleIDs'][:]
+        ### Hard-coded particle DM mass
+        dm_part_mass_dict = {'TNG300-1': 4.0 * 10**7, 'TNG300-2': 3.2 * 10**8, 'TNG300-3': 2.5 * 10**9}
+        masses = np.zeros(coordinates.shape[0]) + dm_part_mass_dict[sim] / h
 
 ### Correct coordinates for TNG simulation coordiantes
 cluster_id = np.int64(cluster_id)
-coordinates = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = coordinates, boxsize = 205000) 
+box_size_dict = {'TNG300-1': 205000, 'TNG300-2': 205000, 'TNG300-3': 205000, 'TNG-Cluster': 680000}
+coordinates = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = coordinates, 
+                                   boxsize = box_size_dict[sim], sim_in=sim) 
 coordinates = coordinates * 10**-3     #Convert to Mpc/h
 
 #keep, rcut_map, pix = TNG_DA.healpix_radial_density_cut(
@@ -153,7 +172,8 @@ member_fname_b   = member_fname.encode("utf-8")
 
 # Minimum number of particles in a subhalo (mass resolution matched with bahamas)
 
-min_particles_in_subhalo = 18644
+dm_min_num_part_dict = {'TNG300-1': 18644, 'TNG300-2': 2340, 'TNG300-3': 293, 'TNG-Cluster': 18033}
+min_particles_in_subhalo = dm_min_num_part_dict[sim]
 
 # FoF fraction
 
@@ -164,8 +184,8 @@ fof_fraction = 0.7
 dm_mass_h = masses[0] * h
 
 # TNG softening length in Mpc / h (from Nelson et al. 2019)
-
-softening_in_Mpc_over_h = (1.48 * 10**-3) * h
+grav_soft_dm_dict = {'TNG300-1': 1.48, 'TNG300-2': 2.95, 'TNG300-3': 5.90, 'TNG-Cluster': 1.48} ### kpc
+softening_in_Mpc_over_h = (grav_soft_dm_dict[sim] * 10**-3) * h
 
 # Scale factor at z = 0
 

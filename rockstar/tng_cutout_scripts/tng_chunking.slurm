@@ -12,15 +12,15 @@
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate cl_dyn
 
-mkdir -p /scratch/habjan.e/tng_chunk_logs
+mkdir -p /home/habjan.e/TNG/Sandbox_notebooks/tng_chunk_logs
 
-export TNG_API_KEY="Your API key"
+export TNG_API_KEY="4486a4dd0aa3dd16f1d5fe60b5a22687"
 
 python tng_chunking.py \
-  --sim TNG300-1 \
+  --sim TNG-Cluster \
   --snap 99 \
   --cache-dir /scratch/habjan.e/_tmp_tng_chunks \
   --use-slurm-array \
   --array-ntasks 28 \
   --default-min 0 \
-  --default-max 599
+  --default-max 703

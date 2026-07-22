@@ -54,7 +54,7 @@ coordinates = difpos
 # km / s
 velocities = data['dm_vel']
 # solar masses
-masses = data['dm_mass'] * data['h']
+masses = data['dm_mass'] # * data['h']
 ids = data['dm_ID']
 
 # Remove extrenuous particles
@@ -163,7 +163,7 @@ dm_mass_h = masses[0] * data['h']
 
 softening_in_Mpc_over_h = 4 * 10**-3
 
-# Scale factor at z = 0.375
+# Scale factor at z = 0
 
 a_scale_factor = data['a']
 

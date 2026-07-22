@@ -100,7 +100,7 @@ def get_cluster_props(cluster_ind):
     
     return pos, vel, groups, subhalo_masses, subhalo_type, h, halo_mass
 
-def coord_cm_corr(cluster_ind, coordinates, boxsize = 205000):
+def coord_cm_corr(cluster_ind, coordinates, boxsize = 205000, sim_in='TNG300-1'):
 
     """
     Corrects for TNG coordinates into cluster-centric coordinates
@@ -113,7 +113,7 @@ def coord_cm_corr(cluster_ind, coordinates, boxsize = 205000):
         coordinates (numpy.ndarray): Array of shape (N, 3) with cluster-centric coordinates.
     """
 
-    halo_center = iapi.getHaloField(field ='GroupPos', simulation=sim, snapshot=99, fileName=TNG_data_path+'TNG_data/'+sim+'_GroupPos', rewriteFile=0)
+    halo_center = iapi.getHaloField(field ='GroupPos', simulation=sim_in, snapshot=99, fileName=TNG_data_path+'TNG_data/'+sim_in+'_GroupPos', rewriteFile=0)
     pos_comoving = halo_center[cluster_ind, :] ## position in units c * kpc / h
 
     difpos = np.subtract(coordinates, pos_comoving)

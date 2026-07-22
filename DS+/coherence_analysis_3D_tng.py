@@ -19,38 +19,57 @@ from fourier_analysis_code_3d import (
     coherence_length_single_3d
 )
 
+
 parser = argparse.ArgumentParser(description="3D TNG coherence analysis")
 parser.add_argument("cluster_ID", type=str, help="ID of the cluster to process")
+parser.add_argument("simulation", type=str, help="simulation to process")
 args = parser.parse_args()
 cluster_id = int(args.cluster_ID)
-print(f'Running 3D Coherence Length code on Cluster {cluster_id}')
+sim = args.simulation
+
+if sim == 'TNG-Cluster':
+    sim_int = 'C'
+    file_loc = '/scratch/habjan.e/TNG'
+else:
+    sim_int = int(sim.rsplit("-", 1)[-1])
+    file_loc = '/projects/mccleary_group/habjan.e/TNG'
+
+print(f'Running 3D Coherence Length code on Cluster {cluster_id} in {sim}')
+
+### Import R_500 for the cluster
+TNG_data_path = '/home/habjan.e/TNG/Data/'
+
+baseUrl = 'http://www.tng-project.org/api/'
+simUrl = baseUrl+sim
+simdata = iapi.get(simUrl)
+h = simdata['hubble']
 
 
 ### Import both the TNG gas and DM data
-dm_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/dm_within_5r200_{cluster_id}.hdf5'
+dm_fname = file_loc + f'/Data/TNG_data/5r200_data-{sim_int}/dm_within_5r200_{cluster_id}.hdf5'
 
 with h5py.File(dm_fname, 'r') as f:
 
-    dm_coordinates = f['PartType1']['Coordinates'][:]
-    dm_velocities = f['PartType1']['Velocities'][:]
+    if sim == 'TNG-Cluster':
 
-gas_fname = f'/projects/mccleary_group/habjan.e/TNG/Data/TNG_data/5r200_data/gas_within_5r200_{cluster_id}.hdf5'
+        dm_coordinates = f['DarkMatter']['Coordinates'][:]
+        dm_velocities = f['DarkMatter']['Velocities'][:]
+        mass_dm = f['DarkMatter']['Masses'][:] * 10**10 / h ### solar masses
+
+    else: 
+
+        dm_coordinates = f['PartType1']['Coordinates'][:]
+        dm_velocities = f['PartType1']['Velocities'][:]
+        dm_part_mass_dict = {'TNG300-1': 4.0 * 10**7, 'TNG300-2': 3.2 * 10**8, 'TNG300-3': 2.5 * 10**9}
+        mass_dm = np.zeros(dm_coordinates.shape[0]) + dm_part_mass_dict[sim] / h ### solar masses
+
+gas_fname = file_loc + f'/Data/TNG_data/5r200_data-{sim_int}/gas_within_5r200_{cluster_id}.hdf5'
 
 with h5py.File(gas_fname, 'r') as f:
 
     gas_coordinates = f['PartType0']['Coordinates'][:]
     gas_velocities = f['PartType0']['Velocities'][:]
     gas_masses = f['PartType0']['Masses'][:]
-
-
-### Import R_500 for the cluster
-TNG_data_path = '/home/habjan.e/TNG/Data/'
-sim='TNG300-1'
-
-baseUrl = 'http://www.tng-project.org/api/'
-simUrl = baseUrl+sim
-simdata = iapi.get(simUrl)
-h = simdata['hubble']
 
 r_200_clusters = iapi.getHaloField(field = 'Group_R_Crit200', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_R_Crit200', rewriteFile=0)
 r200 = r_200_clusters[cluster_id] / h
@@ -61,13 +80,13 @@ ngrid_val = 512
 L_val = 2150
 pixel = L_val / ngrid_val
 
+box_size_dict = {'TNG300-1': 205000, 'TNG300-2': 205000, 'TNG300-3': 205000, 'TNG-Cluster': 680000}
 ### Grid the DM particles
-dm_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = dm_coordinates) / h ### kpc
-mass_dm = np.zeros(dm_coords.shape[0]) + 5.9 * 10**7 ### solar masses
+dm_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = dm_coordinates, boxsize = box_size_dict[sim], sim_in=sim) / h ### kpc
 
 
 ### Grid the Gas particles
-gas_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = gas_coordinates) / h ### kpc
+gas_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = gas_coordinates, boxsize = box_size_dict[sim], sim_in=sim) / h ### kpc
 mass_gas = (gas_masses * 10**10) / h
 
 ### Deposit particles into 3D cubes (single orientation)
@@ -152,7 +171,7 @@ print(f"sigma_theta_cr_3d = {sigma_theta_cr_3d}")
 print(f"s_cr_3d = {s_cr_3d}")
 
 ### Save results
-save_path = '/projects/mccleary_group/habjan.e/TNG/Data/coherence_data_3D/TNG/'
+save_path = f'/projects/mccleary_group/habjan.e/TNG/Data/coherence_data_3D/{sim}/'
 os.makedirs(save_path, exist_ok=True)
 
 np.save(save_path + f"coherence_length_{cluster_id}.npy", np.array([s_cr_3d]))

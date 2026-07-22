@@ -36,13 +36,13 @@ if [[ -z "${HALO_ID}" ]]; then
   exit 2
 fi
 
-OUTFILE="${OUT_DIR}/gas_within_5r200_${HALO_ID}.hdf5"
+OUTFILE="${OUT_DIR}/dm_within_5r200_${HALO_ID}.hdf5"
 
 echo "[info] task=${SLURM_ARRAY_TASK_ID} halo_id=${HALO_ID}"
 echo "[info] chunks_dir=${CHUNKS_DIR}"
 echo "[info] outfile=${OUTFILE}"
 
-python TNG_5r200_cutout_gas.py \
+python TNG-Cluster_5r200_cutout_dm.py \
   --halo-id "${HALO_ID}" \
   --sim "${SIM}" \
   --snap "${SNAP}" \
