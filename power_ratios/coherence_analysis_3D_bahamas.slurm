@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=coherence_analysis
-#SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/DS+_slurm_logs/coherence_analysis_%A_%a.log
+#SBATCH --job-name=coherence_3D_bahamas
+#SBATCH --output=/home/habjan.e/TNG/Sandbox_notebooks/DS+_slurm_logs/coherence_3D_bahamas_%A_%a.log
 #SBATCH --array=0-499%28
 #SBATCH --cpus-per-task=1
-#SBATCH --time=14:00:00
-#SBATCH --mem=10G
+#SBATCH --time=01:00:00
+#SBATCH --mem=40G
 #SBATCH --partition=short
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
@@ -12,7 +12,7 @@ export OMP_PROC_BIND=spread
 export OMP_PLACES=cores
 
 source ~/miniconda3/etc/profile.d/conda.sh
-source activate cl_dyn 
+conda activate cl_dyn
 
 cd /projects/mccleary_group/habjan.e/TNG/Data
 
@@ -26,4 +26,4 @@ cluster_id=$(printf "%03d" $sim_id)
 
 echo "Running model: $dm_model | cluster: $cluster_id"
 
-srun --cpu-bind=cores python3 /home/habjan.e/TNG/TNG_cluster_dynamics/DS+/coherence_analysis_bahamas.py "$cluster_id" "$dm_model"
+srun --cpu-bind=cores python3 /home/habjan.e/TNG/TNG_cluster_dynamics/power_ratios/coherence_analysis_3D_bahamas.py "$cluster_id" "$dm_model"

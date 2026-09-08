@@ -21,8 +21,8 @@ sim=${sims[$sim_index]}
 echo "Running sim: $sim | cluster: $cluster_id"
 
 source ~/miniconda3/etc/profile.d/conda.sh
-source activate cl_dyn
+conda activate cl_dyn
 
 cd /projects/mccleary_group/habjan.e/TNG/Data
 
-srun --cpu-bind=cores python3 /home/habjan.e/TNG/TNG_cluster_dynamics/DS+/coherence_analysis_3D_tng.py "$cluster_id" "$sim"
+srun --cpu-bind=cores python3 /home/habjan.e/TNG/TNG_cluster_dynamics/power_ratios/coherence_analysis_3D_tng.py "$cluster_id" "$sim"
