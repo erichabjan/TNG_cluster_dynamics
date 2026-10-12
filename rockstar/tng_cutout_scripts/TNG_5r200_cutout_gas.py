@@ -1,12 +1,33 @@
 #!/usr/bin/env python3
+"""
+Gas cutouts within rmult * R200 of a TNG halo.
+
+Default mode (TNG300-1/2/3, configured in tng_cutout_config.py): ADD the
+X-ray fields -- Density, InternalEnergy, ElectronAbundance, StarFormationRate
+-- to the existing gas_within_5r200_<halo>.hdf5, whose Coordinates,
+Velocities, Masses and ParticleIDs are left untouched. Cells are matched by
+ParticleID, so the cutout's particle set (the same one the DM cutout and every
+earlier analysis used) does not change. Each chunk comes from the existing
+TNG300-1 gas chunks when they hold the fields, else from the tng_chunking.py
+cache; the cutout is only written once every one of its cells has been found.
+
+--fresh: the original behaviour -- build a new Coordinates / Velocities /
+Masses / ParticleIDs cutout from a local chunk directory (--chunks-dir, --out),
+e.g. for TNG-Cluster.
+"""
 import os
 import re
+import sys
+import time
 import h5py
 import numpy as np
 import requests
 from urllib.parse import urljoin
 import argparse
 from typing import Tuple, Optional
+
+import tng_cutout_config as tcc
+import tng_cutout_common as tc
 
 BASEURL = "http://www.tng-project.org/api/"
 # Prefer env var so you don't hardcode keys in scripts
@@ -186,32 +207,168 @@ def write_dm_cutout_within_rmult(
     print(f"[done] wrote {outname}  N_gas_selected={n_written}")
     return outname
 
+
+# Fields add_xray_fields writes; Coordinates and ParticleIDs in FIELDS['gas']
+# are only read, for the radius cut and the match.
+XRAY_FIELDS = tuple(k for k in tcc.FIELDS["gas"] if k not in ("Coordinates", "ParticleIDs"))
+DONE_ATTR = "xray_fields_added"
+
+
+def add_xray_fields(
+    halo_id: int,
+    sim: str,
+    snap: int,
+    rmult: float,
+    rdef: str,
+    center_field: str,
+    cutout: str,
+    compression: Optional[str] = "gzip",
+    overwrite: bool = False,
+    max_chunks: Optional[int] = None,
+) -> str:
+    """
+    Add XRAY_FIELDS to an existing gas cutout, in place, by ParticleID.
+
+    Every chunk is cut to the same rmult * R200 sphere the cutout was made
+    with (a 1e-6 relative margin absorbs float rounding at the edge; cells
+    selected that are not in the cutout are counted and ignored), and its
+    cells are matched to the cutout by ParticleID. Nothing is written until
+    every cutout cell has a value, so the file is never left half-updated
+    with plausible-looking data; on success the attr xray_fields_added marks
+    it done, and a rerun skips it unless overwrite.
+    """
+    if not os.path.exists(cutout):
+        raise FileNotFoundError(
+            f"{cutout} does not exist; this mode adds fields to an existing gas "
+            f"cutout (use --fresh to build one from chunks)")
+
+    with h5py.File(cutout, "r") as f:
+        g = f["PartType0"]
+        if (not overwrite and f.attrs.get(DONE_ATTR) is not None
+                and all(k in g for k in XRAY_FIELDS)):
+            print(f"[skip] {cutout} already has {list(XRAY_FIELDS)}")
+            return cutout
+        ids = g["ParticleIDs"][:]
+        old_rcut = float(f.attrs["rcut"])
+
+    center, r200, rcut, boxsize = tc.halo_geometry(sim, snap, halo_id, rmult, rdef, center_field)
+    if abs(rcut - old_rcut) > 1e-6 * old_rcut:
+        raise ValueError(f"{cutout}: rcut {old_rcut} in the file, {rcut} from the API now")
+
+    sources = tc.chunk_sources(sim, "gas", tcc.FIELDS["gas"], snap, max_chunks=max_chunks)
+    ex0 = tcc.existing_chunk_path(sim, "gas", 0, snap)
+    ex_dir = os.path.dirname(ex0) if ex0 else None
+    n_existing = sum(1 for p in sources if ex_dir and os.path.dirname(p) == ex_dir)
+    print(f"[info] {sim} halo {halo_id}: {ids.size:,} cutout cells, rcut={rcut:.2f} ckpc/h, "
+          f"{len(sources)} chunks ({n_existing} existing, {len(sources) - n_existing} cache)", flush=True)
+
+    order = np.argsort(ids, kind="stable")
+    sorted_ids = ids[order]
+    if np.any(sorted_ids[1:] == sorted_ids[:-1]):
+        raise ValueError(f"{cutout}: duplicate ParticleIDs; cannot match by ID")
+
+    values = {}
+    filled = np.zeros(ids.size, dtype=bool)
+    n_outside_cutout = 0
+    r_sel = rcut * (1.0 + 1e-6)
+    t0 = time.time()
+
+    for i, fp in enumerate(sources):
+        with h5py.File(fp, "r") as f:
+            g = f["PartType0"] if "PartType0" in f else None
+            sel = (tc.periodic_radius(g["Coordinates"][:], center, boxsize) <= r_sel
+                   if g is not None else None)
+            if sel is not None and np.any(sel):
+                pid = g["ParticleIDs"][:][sel]
+                pos = np.searchsorted(sorted_ids, pid)
+                pos_c = np.minimum(pos, sorted_ids.size - 1)
+                hit = sorted_ids[pos_c] == pid
+                n_outside_cutout += int(np.count_nonzero(~hit))
+                target = order[pos_c[hit]]
+                if np.any(filled[target]):
+                    raise ValueError(f"{fp}: a cutout cell was matched twice")
+                for k in XRAY_FIELDS:
+                    v = g[k][:][sel][hit]
+                    if k not in values:
+                        values[k] = np.full(ids.size, np.nan, dtype=v.dtype)
+                    values[k][target] = v
+                filled[target] = True
+        if (i + 1) % 50 == 0:
+            print(f"  {i + 1}/{len(sources)} chunks, {int(filled.sum()):,} cells matched, "
+                  f"{time.time() - t0:.0f} s", flush=True)
+
+    n_missing = int(ids.size - filled.sum())
+    if n_missing:
+        raise RuntimeError(
+            f"{cutout}: {n_missing:,} of {ids.size:,} cells were not found in the chunks "
+            f"(max_chunks={max_chunks}); nothing written")
+
+    with h5py.File(cutout, "a") as f:
+        g = f["PartType0"]
+        for k in XRAY_FIELDS:
+            if k in g:
+                del g[k]                  # a partial earlier write, or --overwrite
+            g.create_dataset(k, data=values[k], chunks=True, compression=compression)
+        f.attrs["xray_fields_source"] = (
+            f"{n_existing} chunks from the existing source, "
+            f"{len(sources) - n_existing} from the tng_chunking cache")
+        f.attrs["xray_fields_n_selected_not_in_cutout"] = n_outside_cutout
+        f.attrs[DONE_ATTR] = ",".join(XRAY_FIELDS)    # last: marks the file complete
+
+    print(f"[done] {cutout}: added {list(XRAY_FIELDS)} for {ids.size:,} cells "
+          f"({n_outside_cutout} edge cells outside the cutout ignored), {time.time() - t0:.0f} s")
+    return cutout
+
+
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--halo-id", type=int, required=True)
     ap.add_argument("--sim", type=str, default="TNG300-1")
     ap.add_argument("--snap", type=int, default=99)
     ap.add_argument("--rmult", type=float, default=5.0)
     ap.add_argument("--rdef", type=str, default="Group_R_Crit200")
     ap.add_argument("--center-field", type=str, default="GroupPos")
-    ap.add_argument("--chunks-dir", type=str, required=True,
-                    help="Directory containing local snapshot chunk files snapshot-<snap>.<i>.hdf5")
-    ap.add_argument("--out", type=str, required=True)
+    ap.add_argument("--fresh", action="store_true",
+                    help="Build a new pos/vel/mass/ID cutout from --chunks-dir (original behaviour).")
+    ap.add_argument("--chunks-dir", type=str, default=None,
+                    help="--fresh only: directory containing snapshot-<snap>.<i>.hdf5")
+    ap.add_argument("--out", type=str, default=None,
+                    help="Cutout path (default: tng_cutout_config.cutout_path; required with --fresh)")
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--compression", type=str, default="gzip")
+    ap.add_argument("--max-chunks", type=int, default=None,
+                    help="Smoke tests only: scan the first N chunks (the match will be incomplete).")
     args = ap.parse_args()
 
-    write_dm_cutout_within_rmult(
+    if args.fresh:
+        if not (args.chunks_dir and args.out):
+            ap.error("--fresh needs --chunks-dir and --out")
+        write_dm_cutout_within_rmult(
+            halo_id=args.halo_id,
+            sim=args.sim,
+            snap=args.snap,
+            rmult=args.rmult,
+            rdef=args.rdef,
+            center_field=args.center_field,
+            chunks_dir=args.chunks_dir,
+            outname=args.out,
+            compression=args.compression,
+            overwrite=args.overwrite,
+        )
+        return
+
+    add_xray_fields(
         halo_id=args.halo_id,
         sim=args.sim,
         snap=args.snap,
         rmult=args.rmult,
         rdef=args.rdef,
         center_field=args.center_field,
-        chunks_dir=args.chunks_dir,
-        outname=args.out,
+        cutout=args.out or tcc.cutout_path(args.sim, "gas", args.halo_id),
         compression=args.compression,
         overwrite=args.overwrite,
+        max_chunks=args.max_chunks,
     )
 
 if __name__ == "__main__":

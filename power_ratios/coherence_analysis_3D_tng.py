@@ -119,12 +119,14 @@ print("Xray min/max    :", np.nanmin(data_xray), np.nanmax(data_xray))
 
 ### 3D theta binning
 nbins = 30
-pixel_size = L_val / data_mass.shape[-1]
+pixel_size = 2*L_val / data_mass.shape[-1]
 tet_1grid = make_theta_binning_3d(data_mass, pixel_size, nbins)
 
 ### Apply 3D Hann window
-data_mass_win = hann_window_3d(data_mass)
-data_xray_win = hann_window_3d(data_xray)
+#data_mass_win = hann_window_3d(data_mass)
+#data_xray_win = hann_window_3d(data_xray)
+data_mass_win = hann_window_3d(data_mass / data_mass.mean() - 1)
+data_xray_win = hann_window_3d(data_xray / data_xray.mean() - 1)
 
 ### 3D auto-power spectra
 bin_center, pairs, amp_mass, power_mass, sig_mass = auto_power_3d(
