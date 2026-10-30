@@ -1,28 +1,26 @@
-import numpy as np 
-import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
-import pandas as pd
+import numpy as np
 
 import os
+import time
 import argparse
 
 import sys
-sys.path.append("/home/habjan.e/TNG/Codes/TNG_workshop")
-sys.path.append("/home/habjan.e/TNG/TNG_cluster_dynamics")
 sys.path.append("/home/habjan.e/TNG/Codes/Fourier_Analysis")
 
-import iapi_TNG as iapi
-import h5py
-import TNG_DA
+import coherence_utils
+import sph_deposit
 import Full_Fourier_analysis_code
 
-parser = argparse.ArgumentParser(description="BAHAMAS script")
+parser = argparse.ArgumentParser(description="2D BAHAMAS coherence analysis")
 parser.add_argument("cluster_id", type=str, help="ID of the cluster to process")
-parser.add_argument("dm_model", type=str, help="The Dark Matter model to process")
+parser.add_argument("dm_model", type=str, choices=sph_deposit.BAHAMAS_MODELS, help="The Dark Matter model to process")
+parser.add_argument("--deposit", choices=("sph", "cic"), default="sph", help="particle deposit: adaptive SPH (default) or CIC")
+parser.add_argument("--n_projections", type=int, default=100, help="number of random projections (directions are seeded by cluster ID, so the first N of a longer run are identical)")
 args = parser.parse_args()
 cluster_id = args.cluster_id
 dm_folder = args.dm_model
-print(f'Running Coherence Length code on Cluster {cluster_id} in {dm_folder}')
+deposit = args.deposit
+print(f'Running Coherence Length code on Cluster {cluster_id} in {dm_folder} ({deposit} deposit)')
 
 ### Import both the TNG gas and DM data
 data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/" + dm_folder + "/GrNm_" + cluster_id + ".npz")
@@ -54,8 +52,8 @@ gas_coordinates = (gas_coordinates * 10**3) / h
 
 ### Voxel Parameters
 ngrid_val = 512
-L_val = 2150
-pixel = L_val / ngrid_val
+L_val = 2150                        ### half-width of the cube, kpc
+pixel = 2 * L_val / ngrid_val       ### pixel size, kpc
 
 ### Simulated data mask (all pixels)
 data_mask = np.ones((ngrid_val, ngrid_val),dtype=float)
@@ -66,6 +64,12 @@ mass_dm = np.zeros(dm_coordinates.shape[0]) + 5.5 * 10**9
 
 ### Gas particles
 mass_gas = np.zeros(gas_coordinates.shape[0]) + 1.09 * 10**9
+
+### Same-species SPH smoothing lengths: rotation-invariant, so read from the
+### cache the 3D script builds (or built here if it is missing)
+if deposit == 'sph':
+    h_dm = sph_deposit.species_h(dm_coordinates, dm_folder, 'dm', cluster_id)
+    h_gas = sph_deposit.species_h(gas_coordinates, dm_folder, 'gas', cluster_id)
 
 co_len = []
 co_len_err = []
@@ -86,18 +90,31 @@ theta_cross_list = []
 P_cross_list = []
 P_cross_sig_list = []
 
-projections = 10**3
-proj_vector = np.random.uniform(-1, 1, (projections, 3))
+### Isotropic viewing directions, seeded by the cluster ID so that every
+### deposit and DM model sees the same projections of a given cluster
+projections = args.n_projections
+rng = np.random.default_rng(int(cluster_id))
+proj_vector = rng.normal(size=(projections, 3))
+proj_vector /= np.linalg.norm(proj_vector, axis=1)[:, None]
 
+t_start = time.time()
 for i in range(projections):
 
-    dm_coords_ro, _ = TNG_DA.rotate_to_viewing_frame(positions = dm_coordinates, velocities = np.empty_like(dm_coordinates), viewing_direction = proj_vector[i])
-    dm_cube = TNG_DA.deposit_cic_scalar(positions = dm_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
-    dm_2d = np.nansum(dm_cube, axis = 2)
+    if i % 50 == 0:
+        print(f'projection {i}/{projections}, {time.time() - t_start:.0f} s elapsed', flush=True)
 
-    gas_coords_ro, _ = TNG_DA.rotate_to_viewing_frame(positions = gas_coordinates, velocities = np.empty_like(gas_coordinates), viewing_direction = proj_vector[i])
-    gas_cube = TNG_DA.deposit_cic_scalar(positions = gas_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
-    gas_2d = np.nansum(gas_cube, axis = 2)
+    dm_coords_ro, _ = coherence_utils.rotate_to_viewing_frame(positions = dm_coordinates, velocities = np.empty_like(dm_coordinates), viewing_direction = proj_vector[i])
+    gas_coords_ro, _ = coherence_utils.rotate_to_viewing_frame(positions = gas_coordinates, velocities = np.empty_like(gas_coordinates), viewing_direction = proj_vector[i])
+
+    ### Project along the viewing direction (z of the rotated frame) over |z| < L
+    if deposit == 'sph':
+        dm_2d, _ = sph_deposit.sph_mass_map(dm_coords_ro, mass_dm, h_dm, L_val, ngrid_val)
+        gas_2d, _ = sph_deposit.sph_mass_map(gas_coords_ro, mass_gas, h_gas, L_val, ngrid_val)
+    else:
+        dm_cube = coherence_utils.deposit_cic_scalar(positions = dm_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_dm)
+        dm_2d = np.nansum(dm_cube, axis = 0)
+        gas_cube = coherence_utils.deposit_cic_scalar(positions = gas_coords_ro, L = L_val, ngrid = (ngrid_val, ngrid_val, ngrid_val), weights=mass_gas)
+        gas_2d = np.nansum(gas_cube, axis = 0)
 
 
     ### Angular binning
@@ -111,13 +128,11 @@ for i in range(projections):
     ### Power spectra
     sample_size= ngrid_val * ngrid_val
 
-    #Fluctuation maps
+    #Fluctuation maps: delta = Sigma / <Sigma> - 1, as in the 3D analysis
     image_mass = np.nan_to_num(dm_2d, nan=0.0)
     image_gas = np.nan_to_num(gas_2d, nan=0.0)
-    average_mass = np.average(image_mass)
-    average_gas = np.average(image_gas)   
-    fluc_mass = (image_mass-average_mass)    
-    fluc_gas = (image_gas-average_gas)
+    fluc_mass = image_mass / image_mass.mean() - 1
+    fluc_gas = image_gas / image_gas.mean() - 1
 
     #Application of window function for edge effect corrections
     windowed_mass = Full_Fourier_analysis_code.hann_window_power_spectrum(fluc_mass)
@@ -210,7 +225,9 @@ for i in range(projections):
     P_cross_sig_list.append(P_cross_sig)
 
 
-save_path = '/projects/mccleary_group/habjan.e/TNG/Data/coherence_data/' + dm_folder + '/'
+save_dir = {'sph': 'coherence_data_sph', 'cic': 'coherence_data_cic'}[deposit]
+save_path = '/projects/mccleary_group/habjan.e/TNG/Data/' + save_dir + '/' + dm_folder + '/'
+os.makedirs(save_path, exist_ok=True)
 
 np.save(save_path + f"coherence_length_{cluster_id}.npy", np.array(co_len))
 np.save(save_path + f"coherence_length_err_{cluster_id}.npy", np.array(co_len_err))
@@ -232,4 +249,4 @@ np.save(save_path + f"theta_cross_{cluster_id}.npy", np.array(theta_cross_list))
 np.save(save_path + f"power_cross_{cluster_id}.npy", np.array(P_cross_list))
 np.save(save_path + f"power_cross_error_{cluster_id}.npy", np.array(P_cross_sig_list))
 
-print('Successfully Ran coherence_analysis.py')
+print('Successfully Ran coherence_analysis_bahamas.py')

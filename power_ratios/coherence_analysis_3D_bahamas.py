@@ -3,10 +3,10 @@ import os
 import argparse
 
 import sys
-sys.path.append("/home/habjan.e/TNG/TNG_cluster_dynamics")
 sys.path.append("/home/habjan.e/TNG/Codes/Fourier_Analysis")
 
-import TNG_DA
+import coherence_utils
+import sph_deposit
 from fourier_analysis_code_3d import (
     make_theta_binning_3d,
     hann_window_3d,
@@ -18,11 +18,13 @@ from fourier_analysis_code_3d import (
 
 parser = argparse.ArgumentParser(description="3D BAHAMAS coherence analysis")
 parser.add_argument("cluster_id", type=str, help="ID of the cluster to process")
-parser.add_argument("dm_model", type=str, help="The Dark Matter model to process")
+parser.add_argument("dm_model", type=str, choices=sph_deposit.BAHAMAS_MODELS, help="The Dark Matter model to process")
+parser.add_argument("--deposit", choices=("sph", "cic"), default="sph", help="particle deposit: adaptive SPH (default) or CIC")
 args = parser.parse_args()
 cluster_id = args.cluster_id
 dm_folder = args.dm_model
-print(f'Running 3D Coherence Length code on Cluster {cluster_id} in {dm_folder}')
+deposit = args.deposit
+print(f'Running 3D Coherence Length code on Cluster {cluster_id} in {dm_folder} ({deposit} deposit)')
 
 ### Import both the BAHAMAS gas and DM data
 data = np.load("/projects/mccleary_group/habjan.e/TNG/Data/" + dm_folder + "/GrNm_" + cluster_id + ".npz")
@@ -65,27 +67,39 @@ mass_dm = np.zeros(dm_coordinates.shape[0]) + 5.5 * 10**9
 mass_gas = np.zeros(gas_coordinates.shape[0]) + 1.09 * 10**9
 
 ### Deposit particles into 3D cubes (single orientation)
-dm_coords_ro, _ = TNG_DA.rotate_to_viewing_frame(
+dm_coords_ro, _ = coherence_utils.rotate_to_viewing_frame(
     positions=dm_coordinates,
     velocities=np.empty_like(dm_coordinates),
     viewing_direction=np.array([0, 0, 1])
 )
-data_mass = TNG_DA.deposit_cic_scalar(
-    positions=dm_coords_ro, L=L_val,
-    ngrid=(ngrid_val, ngrid_val, ngrid_val),
-    weights=mass_dm
-)
-
-gas_coords_ro, _ = TNG_DA.rotate_to_viewing_frame(
+gas_coords_ro, _ = coherence_utils.rotate_to_viewing_frame(
     positions=gas_coordinates,
     velocities=np.empty_like(gas_coordinates),
     viewing_direction=np.array([0, 0, 1])
 )
-data_xray = TNG_DA.deposit_cic_scalar(
-    positions=gas_coords_ro, L=L_val,
-    ngrid=(ngrid_val, ngrid_val, ngrid_val),
-    weights=mass_gas
-)
+
+if deposit == 'sph':
+    ### Same-species SPH smoothing lengths, from every particle of the cutout;
+    ### rotation-invariant, so cached for the 2D script
+    h_dm = sph_deposit.species_h(dm_coordinates, dm_folder, 'dm', cluster_id)
+    h_gas = sph_deposit.species_h(gas_coordinates, dm_folder, 'gas', cluster_id)
+
+    data_mass, out_dm = sph_deposit.sph_mass_cube(dm_coords_ro, mass_dm, h_dm, L_val, ngrid_val)
+    data_xray, out_gas = sph_deposit.sph_mass_cube(gas_coords_ro, mass_gas, h_gas, L_val, ngrid_val)
+    print(f"SPH mass budget: dm (in + out)/total - 1 = {(data_mass.sum() + out_dm) / mass_dm.sum() - 1:.2e}, "
+          f"gas = {(data_xray.sum() + out_gas) / mass_gas.sum() - 1:.2e}")
+
+else:
+    data_mass = coherence_utils.deposit_cic_scalar(
+        positions=dm_coords_ro, L=L_val,
+        ngrid=(ngrid_val, ngrid_val, ngrid_val),
+        weights=mass_dm
+    )
+    data_xray = coherence_utils.deposit_cic_scalar(
+        positions=gas_coords_ro, L=L_val,
+        ngrid=(ngrid_val, ngrid_val, ngrid_val),
+        weights=mass_gas
+    )
 
 print("Mass cube shape :", data_mass.shape)
 print("Xray cube shape :", data_xray.shape)
@@ -148,7 +162,8 @@ print(f"sigma_theta_cr_3d = {sigma_theta_cr_3d}")
 print(f"s_cr_3d = {s_cr_3d}")
 
 ### Save results
-save_path = '/projects/mccleary_group/habjan.e/TNG/Data/coherence_data_3D/' + dm_folder + '/'
+save_dir = {'sph': 'coherence_data_3D_sph', 'cic': 'coherence_data_3D'}[deposit]
+save_path = '/projects/mccleary_group/habjan.e/TNG/Data/' + save_dir + '/' + dm_folder + '/'
 os.makedirs(save_path, exist_ok=True)
 
 np.save(save_path + f"coherence_length_{cluster_id}.npy", np.array([s_cr_3d]))

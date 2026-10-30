@@ -3,13 +3,11 @@ import os
 import argparse
 
 import sys
-sys.path.append("/home/habjan.e/TNG/Codes/TNG_workshop")
-sys.path.append("/home/habjan.e/TNG/TNG_cluster_dynamics")
 sys.path.append("/home/habjan.e/TNG/Codes/Fourier_Analysis")
 
-import iapi_TNG as iapi
 import h5py
-import TNG_DA
+import coherence_utils
+import sph_deposit
 from fourier_analysis_code_3d import (
     make_theta_binning_3d,
     hann_window_3d,
@@ -22,27 +20,20 @@ from fourier_analysis_code_3d import (
 
 parser = argparse.ArgumentParser(description="3D TNG coherence analysis")
 parser.add_argument("cluster_ID", type=str, help="ID of the cluster to process")
-parser.add_argument("simulation", type=str, help="simulation to process")
+parser.add_argument("simulation", type=str, choices=sph_deposit.TNG300_SIMULATIONS, help="simulation to process")
+parser.add_argument("--deposit", choices=("sph", "cic"), default="sph", help="particle deposit: adaptive SPH (default) or CIC")
 args = parser.parse_args()
 cluster_id = int(args.cluster_ID)
 sim = args.simulation
+deposit = args.deposit
 
-if sim == 'TNG-Cluster':
-    sim_int = 'C'
-    file_loc = '/scratch/habjan.e/TNG'
-else:
-    sim_int = int(sim.rsplit("-", 1)[-1])
-    file_loc = '/projects/mccleary_group/habjan.e/TNG'
+sim_int = int(sim.rsplit("-", 1)[-1])
+file_loc = '/projects/mccleary_group/habjan.e/TNG'
 
-print(f'Running 3D Coherence Length code on Cluster {cluster_id} in {sim}')
+print(f'Running 3D Coherence Length code on Cluster {cluster_id} in {sim} ({deposit} deposit)')
 
 ### Import R_500 for the cluster
-TNG_data_path = '/home/habjan.e/TNG/Data/'
-
-baseUrl = 'http://www.tng-project.org/api/'
-simUrl = baseUrl+sim
-simdata = iapi.get(simUrl)
-h = simdata['hubble']
+h = coherence_utils.TNG300_H
 
 
 ### Import both the TNG gas and DM data
@@ -50,18 +41,10 @@ dm_fname = file_loc + f'/Data/TNG_data/5r200_data-{sim_int}/dm_within_5r200_{clu
 
 with h5py.File(dm_fname, 'r') as f:
 
-    if sim == 'TNG-Cluster':
-
-        dm_coordinates = f['DarkMatter']['Coordinates'][:]
-        dm_velocities = f['DarkMatter']['Velocities'][:]
-        mass_dm = f['DarkMatter']['Masses'][:] * 10**10 / h ### solar masses
-
-    else: 
-
-        dm_coordinates = f['PartType1']['Coordinates'][:]
-        dm_velocities = f['PartType1']['Velocities'][:]
-        dm_part_mass_dict = {'TNG300-1': 4.0 * 10**7, 'TNG300-2': 3.2 * 10**8, 'TNG300-3': 2.5 * 10**9}
-        mass_dm = np.zeros(dm_coordinates.shape[0]) + dm_part_mass_dict[sim] / h ### solar masses
+    dm_coordinates = f['PartType1']['Coordinates'][:]
+    dm_velocities = f['PartType1']['Velocities'][:]
+    dm_part_mass_dict = {'TNG300-1': 4.0 * 10**7, 'TNG300-2': 3.2 * 10**8, 'TNG300-3': 2.5 * 10**9}
+    mass_dm = np.zeros(dm_coordinates.shape[0]) + dm_part_mass_dict[sim] / h ### solar masses
 
 gas_fname = file_loc + f'/Data/TNG_data/5r200_data-{sim_int}/gas_within_5r200_{cluster_id}.hdf5'
 
@@ -71,7 +54,7 @@ with h5py.File(gas_fname, 'r') as f:
     gas_velocities = f['PartType0']['Velocities'][:]
     gas_masses = f['PartType0']['Masses'][:]
 
-r_200_clusters = iapi.getHaloField(field = 'Group_R_Crit200', simulation=sim, snapshot=99, fileName= TNG_data_path+'TNG_data/'+sim+'_Group_R_Crit200', rewriteFile=0)
+r_200_clusters = coherence_utils.tng_group_field(sim, 'Group_R_Crit200')
 r200 = r_200_clusters[cluster_id] / h
 
 
@@ -80,37 +63,48 @@ ngrid_val = 512
 L_val = 2150
 pixel = L_val / ngrid_val
 
-box_size_dict = {'TNG300-1': 205000, 'TNG300-2': 205000, 'TNG300-3': 205000, 'TNG-Cluster': 680000}
 ### Grid the DM particles
-dm_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = dm_coordinates, boxsize = box_size_dict[sim], sim_in=sim) / h ### kpc
+dm_coords = coherence_utils.tng_center_on_group(dm_coordinates, sim, cluster_id) / h ### kpc
 
 
 ### Grid the Gas particles
-gas_coords = TNG_DA.coord_cm_corr(cluster_ind = cluster_id, coordinates = gas_coordinates, boxsize = box_size_dict[sim], sim_in=sim) / h ### kpc
+gas_coords = coherence_utils.tng_center_on_group(gas_coordinates, sim, cluster_id) / h ### kpc
 mass_gas = (gas_masses * 10**10) / h
 
 ### Deposit particles into 3D cubes (single orientation)
-dm_coords_ro, _ = TNG_DA.rotate_to_viewing_frame(
+dm_coords_ro, _ = coherence_utils.rotate_to_viewing_frame(
     positions=dm_coords,
     velocities=np.empty_like(dm_coords),
     viewing_direction=np.array([0, 0, 1])
 )
-data_mass = TNG_DA.deposit_cic_scalar(
-    positions=dm_coords_ro, L=L_val,
-    ngrid=(ngrid_val, ngrid_val, ngrid_val),
-    weights=mass_dm
-)
-
-gas_coords_ro, _ = TNG_DA.rotate_to_viewing_frame(
+gas_coords_ro, _ = coherence_utils.rotate_to_viewing_frame(
     positions=gas_coords,
     velocities=np.empty_like(gas_coords),
     viewing_direction=np.array([0, 0, 1])
 )
-data_xray = TNG_DA.deposit_cic_scalar(
-    positions=gas_coords_ro, L=L_val,
-    ngrid=(ngrid_val, ngrid_val, ngrid_val),
-    weights=mass_gas
-)
+
+if deposit == 'sph':
+    ### Same-species SPH smoothing lengths, from every particle of the cutout;
+    ### rotation-invariant, so cached for the 2D script
+    h_dm = sph_deposit.species_h(dm_coords, sim, 'dm', cluster_id)
+    h_gas = sph_deposit.species_h(gas_coords, sim, 'gas', cluster_id)
+
+    data_mass, out_dm = sph_deposit.sph_mass_cube(dm_coords_ro, mass_dm, h_dm, L_val, ngrid_val)
+    data_xray, out_gas = sph_deposit.sph_mass_cube(gas_coords_ro, mass_gas, h_gas, L_val, ngrid_val)
+    print(f"SPH mass budget: dm (in + out)/total - 1 = {(data_mass.sum() + out_dm) / mass_dm.sum() - 1:.2e}, "
+          f"gas = {(data_xray.sum() + out_gas) / mass_gas.sum() - 1:.2e}")
+
+else:
+    data_mass = coherence_utils.deposit_cic_scalar(
+        positions=dm_coords_ro, L=L_val,
+        ngrid=(ngrid_val, ngrid_val, ngrid_val),
+        weights=mass_dm
+    )
+    data_xray = coherence_utils.deposit_cic_scalar(
+        positions=gas_coords_ro, L=L_val,
+        ngrid=(ngrid_val, ngrid_val, ngrid_val),
+        weights=mass_gas
+    )
 
 print("Mass cube shape :", data_mass.shape)
 print("Xray cube shape :", data_xray.shape)
@@ -173,7 +167,8 @@ print(f"sigma_theta_cr_3d = {sigma_theta_cr_3d}")
 print(f"s_cr_3d = {s_cr_3d}")
 
 ### Save results
-save_path = f'/projects/mccleary_group/habjan.e/TNG/Data/coherence_data_3D/{sim}/'
+save_dir = {'sph': 'coherence_data_3D_sph', 'cic': 'coherence_data_3D'}[deposit]
+save_path = f'/projects/mccleary_group/habjan.e/TNG/Data/{save_dir}/{sim}/'
 os.makedirs(save_path, exist_ok=True)
 
 np.save(save_path + f"coherence_length_{cluster_id}.npy", np.array([s_cr_3d]))
